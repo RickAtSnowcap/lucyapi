@@ -1,0 +1,10 @@
+snowcapsystems.com, www.snowcapsystems.com {
+	root * /var/www/snowcap
+	file_server
+}
+
+lucyapi.snowcapsystems.com {
+	header Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+	header Pragma "no-cache"
+	reverse_proxy localhost:8100
+}
