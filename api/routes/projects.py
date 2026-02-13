@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from html import escape
+import re
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
@@ -273,6 +274,27 @@ def _is_numbered_line(line: str) -> bool:
     return bool(stripped) and stripped[0].isdigit() and ". " in stripped[:4]
 
 
+def _postprocess_html(html: str) -> str:
+    """Apply lightweight markup conversions to rendered HTML.
+
+    Runs AFTER html.escape() so we only operate on safe text.
+    Converts URLs into clickable links and **bold** into <strong>.
+    """
+    # Match http:// or https:// followed by non-whitespace, stopping
+    # at whitespace, angle brackets, ampersands, or quotes.
+    html = re.sub(
+        r'(https?://[^\s<>&\'"]+)',
+        r'<a href="\1" target="_blank" rel="noopener">\1</a>',
+        html
+    )
+    # Match **text** bold markers (non-greedy) and convert to <strong>.
+    html = re.sub(
+        r'\*\*(.+?)\*\*',
+        r'<strong>\1</strong>',
+        html
+    )
+    return html
+
 def _render_description(text: str) -> str:
     """Convert description text to HTML paragraphs, preserving intentional structure.
 
@@ -339,7 +361,7 @@ def _render_description(text: str) -> str:
         else:
             parts.append(html)
         i += 1
-    return "\n".join(parts)
+    return _postprocess_html("\n".join(parts))
 
 
 def _render_section_html(node: dict, level: int) -> str:
@@ -367,7 +389,7 @@ def _build_toc(tree: list[dict], level: int = 0) -> str:
         children = node.get("children", [])
         if children:
             items.append(_build_toc(children, level + 1))
-        items.append('</li>')
+        items.append("</li>")
     return "<ul>\n" + "\n".join(items) + "\n</ul>"
 
 
@@ -534,6 +556,18 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
   .section-body li {{
     margin-bottom: 0.35rem;
+  }}
+
+  .section-body a {{
+    color: var(--sky-blue);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(135, 206, 235, 0.3);
+    transition: color 0.2s, border-color 0.2s;
+  }}
+
+  .section-body a:hover {{
+    color: #b8e4f9;
+    border-bottom-color: var(--sky-blue);
   }}
 
   .file-path {{

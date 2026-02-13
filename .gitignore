@@ -13,6 +13,11 @@ build/
 *.conf
 /cloudflare-ddns.conf
 
+# LucyAPI — sensitive and generated
+keys/
+output/
+*.bak*
+
 # IDE
 .vscode/
 .idea/

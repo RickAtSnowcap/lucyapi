@@ -1,3 +1,4 @@
 fastapi
 uvicorn
 asyncpg
+google-api-python-client

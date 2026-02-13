@@ -1,8 +1,11 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from ..auth import verify_api_key
 from ..database import get_pool
+
+SAVE_TOKEN = os.environ.get("LUCYAPI_SAVE_TOKEN", "")
 
 router = APIRouter()
 
@@ -35,6 +38,10 @@ async def boot(agent_key: str = None, caller: dict = Depends(verify_api_key)):
         "project_document": url("/projects/{project_id}/document"),
         "session_start": url("/sessions"),
         "session_last": url("/sessions/last"),
+        "save": {
+            "url": f"{base}/save/{SAVE_TOKEN}",
+            "usage": "POST JSON {subject, content} or GET with ?subject=...&content=... (URL-encoded). Emails markdown attachment to Rick."
+        },
     }
     
     return {"endpoints": endpoints, **result}
