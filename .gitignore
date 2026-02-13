@@ -11,12 +11,18 @@ build/
 # Environment / secrets
 .env
 *.conf
-/cloudflare-ddns.conf
-
-# LucyAPI — sensitive and generated
 keys/
+cloudflare-ddns.sh
+cloudflare-ddns.conf
+
+# Generated content
 output/
+
+# Backups
 *.bak*
+
+# Server config (deploy-specific)
+Caddyfile
 
 # IDE
 .vscode/
