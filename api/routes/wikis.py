@@ -7,6 +7,7 @@ from typing import Optional
 from datetime import datetime, timezone
 from ..auth import verify_api_key
 from ..database import get_pool
+from .sharing import check_share_permission
 
 router = APIRouter()
 
@@ -40,10 +41,17 @@ class WikiSectionUpdate(BaseModel):
 
 @router.get("/wikis")
 async def get_wikis(caller: dict = Depends(verify_api_key)):
-    """All wikis for the caller's user."""
+    """All wikis for the caller's user, including shared wikis."""
     pool = await get_pool()
     rows = await pool.fetch(
-        "SELECT wiki_id, title, description, updated_at FROM wikis WHERE user_id = $1 ORDER BY wiki_id",
+        """SELECT wiki_id, title, description, updated_at, 'owned' as access, 3 as permission_level
+           FROM wikis WHERE user_id = $1
+           UNION ALL
+           SELECT w.wiki_id, w.title, w.description, w.updated_at, 'shared' as access, so.permission_level
+           FROM wikis w
+           JOIN shared_objects so ON so.object_id = w.wiki_id AND so.object_type_id = 3
+           WHERE so.shared_to_user_id = $1
+           ORDER BY wiki_id""",
         caller["user_id"]
     )
     return {"wikis": [dict(r) for r in rows]}
@@ -56,7 +64,7 @@ async def get_wikis(caller: dict = Depends(verify_api_key)):
 
 @router.get("/wikis/tags/{tag}")
 async def search_wiki_tag(tag: str, caller: dict = Depends(verify_api_key)):
-    """Find all sections across all of the user's wikis matching a tag."""
+    """Find all sections across owned and shared wikis matching a tag."""
     pool = await get_pool()
     rows = await pool.fetch(
         """
@@ -65,7 +73,8 @@ async def search_wiki_tag(tag: str, caller: dict = Depends(verify_api_key)):
         FROM wiki_section_tags wst
         JOIN wiki_sections ws ON wst.section_id = ws.section_id
         JOIN wikis w ON ws.wiki_id = w.wiki_id
-        WHERE wst.tag = $1 AND w.user_id = $2
+        WHERE wst.tag = $1 AND (w.user_id = $2
+            OR EXISTS (SELECT 1 FROM shared_objects so WHERE so.object_id = w.wiki_id AND so.object_type_id = 3 AND so.shared_to_user_id = $2))
         ORDER BY w.wiki_id, ws.section_id
         """,
         tag, caller["user_id"]
@@ -105,7 +114,9 @@ async def get_wiki_tags(wiki_id: int, caller: dict = Depends(verify_api_key)):
         wiki_id, caller["user_id"]
     )
     if not wiki:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 1)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
 
     rows = await pool.fetch(
         """
@@ -129,7 +140,13 @@ async def get_wiki(wiki_id: int, caller: dict = Depends(verify_api_key)):
         wiki_id, caller["user_id"]
     )
     if not wiki:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 1)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
+        wiki = await pool.fetchrow(
+            "SELECT wiki_id, title, description, updated_at FROM wikis WHERE wiki_id = $1",
+            wiki_id
+        )
 
     sections = await pool.fetch(
         "SELECT section_id, parent_id, title, description, updated_at FROM wiki_sections WHERE wiki_id = $1 ORDER BY parent_id, section_id",
@@ -178,7 +195,9 @@ async def update_wiki(wiki_id: int, wiki: WikiUpdate, caller: dict = Depends(ver
         wiki_id, caller["user_id"]
     )
     if not existing:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 2)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
 
     updates = []
     values = []
@@ -238,7 +257,9 @@ async def create_wiki_section(wiki_id: int, section: WikiSectionCreate, caller: 
         wiki_id, caller["user_id"]
     )
     if not wiki:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 2)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -270,7 +291,9 @@ async def get_wiki_section(wiki_id: int, section_id: int, caller: dict = Depends
         wiki_id, caller["user_id"]
     )
     if not wiki:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 1)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
 
     node = await pool.fetchrow(
         "SELECT section_id, parent_id, title, description, updated_at FROM wiki_sections WHERE wiki_id = $1 AND section_id = $2",
@@ -317,7 +340,9 @@ async def update_wiki_section(wiki_id: int, section_id: int, section: WikiSectio
         wiki_id, caller["user_id"]
     )
     if not wiki:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 2)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
 
     updates = []
     values = []
@@ -386,7 +411,9 @@ async def delete_wiki_section(wiki_id: int, section_id: int, caller: dict = Depe
         wiki_id, caller["user_id"]
     )
     if not wiki:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 3)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -807,7 +834,13 @@ async def get_wiki_document(wiki_id: int, caller: dict = Depends(verify_api_key)
         wiki_id, caller["user_id"]
     )
     if not wiki:
-        raise HTTPException(status_code=404, detail="Wiki not found")
+        perm = await check_share_permission(pool, caller["user_id"], 3, wiki_id, 1)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Wiki not found")
+        wiki = await pool.fetchrow(
+            "SELECT wiki_id, title, description, created_at, updated_at FROM wikis WHERE wiki_id = $1",
+            wiki_id
+        )
 
     sections = await pool.fetch(
         "SELECT section_id, parent_id, title, description, updated_at FROM wiki_sections WHERE wiki_id = $1 ORDER BY parent_id, section_id",

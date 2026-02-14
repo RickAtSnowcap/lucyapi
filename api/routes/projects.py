@@ -7,6 +7,7 @@ from typing import Optional
 from datetime import datetime, timezone
 from ..auth import verify_api_key
 from ..database import get_pool
+from .sharing import check_share_permission
 
 router = APIRouter()
 
@@ -36,10 +37,17 @@ class SectionUpdate(BaseModel):
 
 @router.get("/projects")
 async def get_projects(caller: dict = Depends(verify_api_key)):
-    """All projects for the caller's user."""
+    """All projects for the caller's user, including shared projects."""
     pool = await get_pool()
     rows = await pool.fetch(
-        "SELECT project_id, title, description FROM projects WHERE user_id = $1 ORDER BY project_id",
+        """SELECT project_id, title, description, 'owned' as access, 3 as permission_level
+           FROM projects WHERE user_id = $1
+           UNION ALL
+           SELECT p.project_id, p.title, p.description, 'shared' as access, so.permission_level
+           FROM projects p
+           JOIN shared_objects so ON so.object_id = p.project_id AND so.object_type_id = 1
+           WHERE so.shared_to_user_id = $1
+           ORDER BY project_id""",
         caller["user_id"]
     )
     return {"projects": [dict(r) for r in rows]}
@@ -53,15 +61,28 @@ async def get_project(project_id: int, caller: dict = Depends(verify_api_key)):
         "SELECT project_id, title, description FROM projects WHERE project_id = $1 AND user_id = $2",
         project_id, caller["user_id"]
     )
+    access = "owned"
+    permission_level = 3
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        perm = await check_share_permission(pool, caller["user_id"], 1, project_id, 1)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project = await pool.fetchrow(
+            "SELECT project_id, title, description FROM projects WHERE project_id = $1",
+            project_id
+        )
+        access = "shared"
+        permission_level = perm
 
     sections = await pool.fetch(
         "SELECT section_id, parent_id, title, description, file_path FROM project_sections WHERE project_id = $1 ORDER BY parent_id, section_id",
         project_id
     )
+    result = dict(project)
+    result["access"] = access
+    result["permission_level"] = permission_level
     return {
-        "project": dict(project),
+        "project": result,
         "sections": [dict(r) for r in sections]
     }
 
@@ -75,7 +96,9 @@ async def get_section(project_id: int, section_id: int, caller: dict = Depends(v
         project_id, caller["user_id"]
     )
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        perm = await check_share_permission(pool, caller["user_id"], 1, project_id, 1)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Project not found")
 
     node = await pool.fetchrow(
         "SELECT section_id, parent_id, title, description, file_path FROM project_sections WHERE project_id = $1 AND section_id = $2",
@@ -114,7 +137,9 @@ async def create_section(project_id: int, section: SectionCreate, caller: dict =
         project_id, caller["user_id"]
     )
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        perm = await check_share_permission(pool, caller["user_id"], 1, project_id, 2)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Project not found")
 
     row = await pool.fetchrow(
         "INSERT INTO project_sections (project_id, parent_id, title, description, file_path) VALUES ($1, $2, $3, $4, $5) RETURNING section_id, title",
@@ -132,7 +157,9 @@ async def update_project(project_id: int, project: ProjectUpdate, caller: dict =
         project_id, caller["user_id"]
     )
     if not existing:
-        raise HTTPException(status_code=404, detail="Project not found")
+        perm = await check_share_permission(pool, caller["user_id"], 1, project_id, 2)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Project not found")
 
     updates = []
     values = []
@@ -165,7 +192,9 @@ async def update_section(project_id: int, section_id: int, section: SectionUpdat
         project_id, caller["user_id"]
     )
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        perm = await check_share_permission(pool, caller["user_id"], 1, project_id, 2)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Project not found")
 
     updates = []
     values = []
@@ -228,7 +257,9 @@ async def delete_section(project_id: int, section_id: int, caller: dict = Depend
         project_id, caller["user_id"]
     )
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        perm = await check_share_permission(pool, caller["user_id"], 1, project_id, 3)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Project not found")
 
     # Recursive delete: collect entire subtree then delete in one shot
     result = await pool.execute(
@@ -618,7 +649,13 @@ async def get_project_document(project_id: int, caller: dict = Depends(verify_ap
         project_id, caller["user_id"]
     )
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        perm = await check_share_permission(pool, caller["user_id"], 1, project_id, 1)
+        if not perm:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project = await pool.fetchrow(
+            "SELECT project_id, title, description, created_at, updated_at FROM projects WHERE project_id = $1",
+            project_id
+        )
 
     sections = await pool.fetch(
         "SELECT section_id, parent_id, title, description, file_path FROM project_sections WHERE project_id = $1 ORDER BY parent_id, section_id",

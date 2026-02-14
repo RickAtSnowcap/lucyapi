@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from starlette.routing import Mount
 from .database import init_pool, close_pool
-from .routes import time, context, memories, sessions, preferences, projects, save, secrets, handoffs, images, google_docs, hints, wikis
+from .routes import time, context, memories, sessions, preferences, projects, save, secrets, handoffs, images, google_docs, hints, wikis, sharing
 from .mcp_server import create_mcp_session_manager
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ async def api_root():
             "endpoint": "https://lucyapi.snowcapsystems.com/mcp",
             "transport": "Streamable HTTP (stateless)",
             "auth": "None (authless connector — agent key baked into server)",
-            "tools": 45,
+            "tools": 74,
             "note": "Add as custom connector in Claude Settings > Connectors"
         },
         "access_model": {
@@ -83,7 +83,8 @@ async def api_root():
                 "project_sections": "user-scoped",
                 "secrets": "user-scoped",
                 "handoffs": "agent-scoped (cross-agent read/create, named-agent pickup/delete)",
-                "hints": "user-scoped"
+                "hints": "user-scoped",
+                "shared_objects": "cross-user (owner shares, recipient reads/writes per permission)"
             }
         },
         "endpoints": {
@@ -151,6 +152,12 @@ async def api_root():
                 {"method": "PUT", "path": "/hints/{hint_id}", "auth": True, "description": "Update a hint (user-scoped write)"},
                 {"method": "DELETE", "path": "/hints/{hint_id}", "auth": True, "description": "Delete a hint node + descendants (user-scoped write)"}
             ],
+            "sharing": [
+                {"method": "POST", "path": "/sharing", "auth": True, "description": "Share an object with another user (owner only, upserts permission)"},
+                {"method": "DELETE", "path": "/sharing/{share_id}", "auth": True, "description": "Revoke a share (owner only)"},
+                {"method": "GET", "path": "/sharing/by-me", "auth": True, "description": "List objects I've shared out"},
+                {"method": "GET", "path": "/sharing/to-me", "auth": True, "description": "List objects shared to me"}
+            ],
             "images": [
                 {"method": "POST", "path": "/genimage", "auth": False, "description": "Generate an image from a text prompt via Gemini"},
                 {"method": "POST", "path": "/genimage/edit", "auth": False, "description": "Edit an existing image with a text prompt via Gemini"},
@@ -179,3 +186,4 @@ app.include_router(images.router)
 app.include_router(google_docs.router)
 app.include_router(hints.router)
 app.include_router(wikis.router)
+app.include_router(sharing.router)

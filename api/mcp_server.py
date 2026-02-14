@@ -152,6 +152,20 @@ def create_mcp_server() -> Server:
             _tool("delete_wiki_section", "Delete a wiki section and descendants.", {**_K, **_WK, **_WS}, ["wiki_id", "section_id"]),
             _tool("get_wiki_tags", "List all unique tags in a wiki.", {**_K, **_WK}, ["wiki_id"]),
             _tool("search_wiki_tag", "Find all sections across wikis matching a tag.", {**_K, "tag": {"type": "string", "description": "Tag to search for"}}, ["tag"]),
+            # Sharing (user-scoped)
+            _tool("share_object", "Share a project, hint category, or wiki with another user.", {
+                **_K,
+                "shared_to_user_id": {"type": "integer", "description": "User ID to share with"},
+                "object_type_id": {"type": "integer", "description": "1=project, 2=hint, 3=wiki"},
+                "object_id": {"type": "integer", "description": "ID of the object to share"},
+                "permission_level": {"type": "integer", "description": "1=read, 2=read+edit, 3=full control", "default": 1}
+            }, ["shared_to_user_id", "object_type_id", "object_id"]),
+            _tool("revoke_share", "Revoke a previously shared object.", {
+                **_K,
+                "share_id": {"type": "integer", "description": "Share ID to revoke"}
+            }, ["share_id"]),
+            _tool("get_shared_by_me", "List all objects you have shared with other users.", {**_K}),
+            _tool("get_shared_to_me", "List all objects other users have shared with you.", {**_K}),
             _tool("create_session", "Log a session start.", {**_K, "project": {"type": "string", "description": "Optional project context"}}, []),
             _tool("get_last_session", "Most recent session for the calling agent.", {**_K}),
             _tool("save_notes", "Email markdown content as an attachment to Rick.", {**_K, "subject": {"type": "string", "description": "Email subject"}, "content": {"type": "string", "description": "Markdown content"}}, ["subject", "content"]),
@@ -670,6 +684,72 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         for r in rows:
             sections.append({"wiki_id": r["wiki_id"], "wiki_title": r["wiki_title"], "section_id": r["section_id"], "title": r["title"], "description": r["description"], "updated_at": r["updated_at"], "tags": tags_by_section_search[r["section_id"]]})
         return {"tag": args["tag"], "sections": sections}
+
+    # ── Sharing ───────────────────────────────────────────────────
+    if name == "share_object":
+        if args["object_type_id"] not in (1, 2, 3):
+            return {"error": "object_type_id must be 1 (project), 2 (hint), or 3 (wiki)"}
+        perm = args.get("permission_level", 1)
+        if perm not in (1, 2, 3):
+            return {"error": "permission_level must be 1, 2, or 3"}
+        if args["shared_to_user_id"] == caller["user_id"]:
+            return {"error": "Cannot share with yourself"}
+        target = await pool.fetchrow("SELECT user_id FROM users WHERE user_id = $1", args["shared_to_user_id"])
+        if not target:
+            return {"error": "Target user not found"}
+        otype = args["object_type_id"]
+        oid = args["object_id"]
+        if otype == 1:
+            owner_check = await pool.fetchrow("SELECT project_id FROM projects WHERE project_id = $1 AND user_id = $2", oid, caller["user_id"])
+        elif otype == 2:
+            owner_check = await pool.fetchrow("SELECT hint_id FROM hints WHERE hint_id = $1 AND user_id = $2 AND parent_id = 0", oid, caller["user_id"])
+        elif otype == 3:
+            owner_check = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", oid, caller["user_id"])
+        if not owner_check:
+            return {"error": "Object not found or you don't own it"}
+        row = await pool.fetchrow(
+            """INSERT INTO shared_objects (shared_by_user_id, shared_to_user_id, object_type_id, object_id, permission_level)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (shared_to_user_id, object_type_id, object_id) DO UPDATE SET permission_level = $5
+               RETURNING share_id, object_type_id, object_id, shared_to_user_id, permission_level""",
+            caller["user_id"], args["shared_to_user_id"], otype, oid, perm
+        )
+        return {"shared": dict(row)}
+
+    if name == "revoke_share":
+        row = await pool.fetchrow(
+            "DELETE FROM shared_objects WHERE share_id = $1 AND shared_by_user_id = $2 RETURNING share_id",
+            args["share_id"], caller["user_id"]
+        )
+        if not row:
+            return {"error": "Share not found or you didn't create it"}
+        return {"revoked": row["share_id"]}
+
+    if name == "get_shared_by_me":
+        rows = await pool.fetch(
+            """SELECT so.share_id, so.object_type_id, ot.name as object_type, so.object_id,
+                      so.shared_to_user_id, u.name as shared_to_name, so.permission_level
+               FROM shared_objects so
+               JOIN object_types ot ON so.object_type_id = ot.object_type_id
+               JOIN users u ON so.shared_to_user_id = u.user_id
+               WHERE so.shared_by_user_id = $1
+               ORDER BY so.object_type_id, so.object_id""",
+            caller["user_id"]
+        )
+        return {"shared_by_me": [dict(r) for r in rows]}
+
+    if name == "get_shared_to_me":
+        rows = await pool.fetch(
+            """SELECT so.share_id, so.object_type_id, ot.name as object_type, so.object_id,
+                      so.shared_by_user_id, u.name as shared_by_name, so.permission_level
+               FROM shared_objects so
+               JOIN object_types ot ON so.object_type_id = ot.object_type_id
+               JOIN users u ON so.shared_by_user_id = u.user_id
+               WHERE so.shared_to_user_id = $1
+               ORDER BY so.object_type_id, so.object_id""",
+            caller["user_id"]
+        )
+        return {"shared_to_me": [dict(r) for r in rows]}
 
     # ── Sessions ──────────────────────────────────────────────────
     if name == "create_session":
