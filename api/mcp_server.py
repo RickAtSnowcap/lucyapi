@@ -97,6 +97,9 @@ _PAR = {"parent_id": {"type": "integer", "description": "Parent node ID (0 for r
 _PJ = {"project_id": {"type": "integer", "description": "Project ID"}}
 _SC = {"section_id": {"type": "integer", "description": "Section ID"}}
 _FP = {"file_path": {"type": "string", "description": "Associated file path"}}
+_WK = {"wiki_id": {"type": "integer", "description": "Wiki ID"}}
+_WS = {"section_id": {"type": "integer", "description": "Section ID"}}
+_TAGS = {"tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for the section"}}
 
 
 def create_mcp_server() -> Server:
@@ -137,6 +140,18 @@ def create_mcp_server() -> Server:
             _tool("create_hint", "Create a hint node.", {**_K, **_T, **_D, **_PAR}, ["title"]),
             _tool("update_hint", "Update a hint node.", {**_K, "hint_id": {"type": "integer", "description": "Hint ID"}, **_T, **_D}, ["hint_id"]),
             _tool("delete_hint", "Delete a hint node and children.", {**_K, "hint_id": {"type": "integer", "description": "Hint ID"}}, ["hint_id"]),
+            # Wikis (user-scoped)
+            _tool("get_wikis", "All wikis for the user.", {**_K}),
+            _tool("get_wiki", "Wiki header with section tree (includes tags and updated_at).", {**_K, **_WK}, ["wiki_id"]),
+            _tool("create_wiki", "Create a new wiki.", {**_K, **_T, **_D}, ["title"]),
+            _tool("update_wiki", "Update a wiki.", {**_K, **_WK, **_T, **_D}, ["wiki_id"]),
+            _tool("delete_wiki", "Delete a wiki and all sections/tags.", {**_K, **_WK}, ["wiki_id"]),
+            _tool("create_wiki_section", "Create a section under a wiki.", {**_K, **_WK, **_T, **_D, **_PAR, **_TAGS}, ["wiki_id", "title"]),
+            _tool("get_wiki_section", "Wiki section with children and tags.", {**_K, **_WK, **_WS}, ["wiki_id", "section_id"]),
+            _tool("update_wiki_section", "Update a wiki section (including tags).", {**_K, **_WK, **_WS, **_T, **_D, **_TAGS}, ["wiki_id", "section_id"]),
+            _tool("delete_wiki_section", "Delete a wiki section and descendants.", {**_K, **_WK, **_WS}, ["wiki_id", "section_id"]),
+            _tool("get_wiki_tags", "List all unique tags in a wiki.", {**_K, **_WK}, ["wiki_id"]),
+            _tool("search_wiki_tag", "Find all sections across wikis matching a tag.", {**_K, "tag": {"type": "string", "description": "Tag to search for"}}, ["tag"]),
             _tool("create_session", "Log a session start.", {**_K, "project": {"type": "string", "description": "Optional project context"}}, []),
             _tool("get_last_session", "Most recent session for the calling agent.", {**_K}),
             _tool("save_notes", "Email markdown content as an attachment to Rick.", {**_K, "subject": {"type": "string", "description": "Email subject"}, "content": {"type": "string", "description": "Markdown content"}}, ["subject", "content"]),
@@ -483,6 +498,178 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         result = await pool.execute("WITH RECURSIVE subtree AS (SELECT hint_id FROM hints WHERE user_id = $1 AND hint_id = $2 UNION ALL SELECT h.hint_id FROM hints h INNER JOIN subtree s ON h.parent_id = s.hint_id WHERE h.user_id = $1) DELETE FROM hints WHERE hint_id IN (SELECT hint_id FROM subtree)", caller["user_id"], args["hint_id"])
         count = int(result.split()[-1])
         return {"deleted": args["hint_id"], "descendants_deleted": count - 1} if count > 0 else {"error": "Hint not found"}
+
+    # ── Wikis (user-scoped) ─────────────────────────────────────────
+    if name == "get_wikis":
+        rows = await pool.fetch("SELECT wiki_id, title, description, updated_at FROM wikis WHERE user_id = $1 ORDER BY wiki_id", caller["user_id"])
+        wikis = []
+        for r in rows:
+            w = dict(r)
+            w["url"] = _browse_url(f"/wikis/{w['wiki_id']}/document", agent_key)
+            wikis.append(w)
+        return {"wikis": wikis}
+
+    if name == "get_wiki":
+        wiki = await pool.fetchrow("SELECT wiki_id, title, description, updated_at FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not wiki:
+            return {"error": "Wiki not found"}
+        wid = args["wiki_id"]
+        wiki_dict = dict(wiki)
+        wiki_dict["url"] = _browse_url(f"/wikis/{wid}/document", agent_key)
+        sections = await pool.fetch("SELECT section_id, parent_id, title, description, updated_at FROM wiki_sections WHERE wiki_id = $1 ORDER BY parent_id, section_id", wid)
+        section_ids = [r["section_id"] for r in sections]
+        tags_by_section: dict[int, list[str]] = {sid: [] for sid in section_ids}
+        if section_ids:
+            tag_rows = await pool.fetch("SELECT section_id, tag FROM wiki_section_tags WHERE section_id = ANY($1) ORDER BY section_id, tag", section_ids)
+            for tr in tag_rows:
+                tags_by_section[tr["section_id"]].append(tr["tag"])
+        section_list = []
+        for r in sections:
+            s = dict(r)
+            s["tags"] = tags_by_section.get(r["section_id"], [])
+            section_list.append(s)
+        return {"wiki": wiki_dict, "sections": section_list}
+
+    if name == "create_wiki":
+        row = await pool.fetchrow("INSERT INTO wikis (user_id, title, description) VALUES ($1, $2, $3) RETURNING wiki_id, title", caller["user_id"], args["title"], args.get("description"))
+        return {"created": dict(row)}
+
+    if name == "update_wiki":
+        existing = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not existing:
+            return {"error": "Wiki not found"}
+        updates, values, idx = [], [], 1
+        for field in ("title", "description"):
+            if field in args:
+                updates.append(f"{field} = ${idx}"); values.append(args[field]); idx += 1
+        if not updates:
+            return {"error": "No fields to update"}
+        updates.append("updated_at = NOW()")
+        values.append(args["wiki_id"])
+        row = await pool.fetchrow(f"UPDATE wikis SET {', '.join(updates)} WHERE wiki_id = ${idx} RETURNING wiki_id, title", *values)
+        return {"updated": dict(row)}
+
+    if name == "delete_wiki":
+        wiki = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not wiki:
+            return {"error": "Wiki not found"}
+        sec_result = await pool.execute("DELETE FROM wiki_sections WHERE wiki_id = $1", args["wiki_id"])
+        await pool.execute("DELETE FROM wikis WHERE wiki_id = $1", args["wiki_id"])
+        return {"deleted": args["wiki_id"], "sections_deleted": int(sec_result.split()[-1])}
+
+    if name == "create_wiki_section":
+        wiki = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not wiki:
+            return {"error": "Wiki not found"}
+        tags = args.get("tags") or []
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow("INSERT INTO wiki_sections (wiki_id, parent_id, title, description) VALUES ($1, $2, $3, $4) RETURNING section_id, title", args["wiki_id"], args.get("parent_id", 0), args["title"], args.get("description"))
+                if tags:
+                    await conn.executemany("INSERT INTO wiki_section_tags (section_id, tag) VALUES ($1, $2)", [(row["section_id"], tag) for tag in tags])
+                await conn.execute("UPDATE wikis SET updated_at = NOW() WHERE wiki_id = $1", args["wiki_id"])
+        result = dict(row)
+        result["tags"] = tags
+        return {"created": result}
+
+    if name == "get_wiki_section":
+        wiki = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not wiki:
+            return {"error": "Wiki not found"}
+        wid = args["wiki_id"]
+        node = await pool.fetchrow("SELECT section_id, parent_id, title, description, updated_at FROM wiki_sections WHERE wiki_id = $1 AND section_id = $2", wid, args["section_id"])
+        if not node:
+            return {"error": "Section not found"}
+        children = await pool.fetch("SELECT section_id, parent_id, title, description, updated_at FROM wiki_sections WHERE wiki_id = $1 AND parent_id = $2 ORDER BY section_id", wid, args["section_id"])
+        all_ids = [node["section_id"]] + [c["section_id"] for c in children]
+        tag_rows = await pool.fetch("SELECT section_id, tag FROM wiki_section_tags WHERE section_id = ANY($1) ORDER BY section_id, tag", all_ids)
+        tags_by_sec: dict[int, list[str]] = {sid: [] for sid in all_ids}
+        for tr in tag_rows:
+            tags_by_sec[tr["section_id"]].append(tr["tag"])
+        section_dict = dict(node)
+        section_dict["tags"] = tags_by_sec[node["section_id"]]
+        children_list = []
+        for c in children:
+            cd = dict(c)
+            cd["tags"] = tags_by_sec[c["section_id"]]
+            children_list.append(cd)
+        return {"section": section_dict, "children": children_list}
+
+    if name == "update_wiki_section":
+        wiki = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not wiki:
+            return {"error": "Wiki not found"}
+        updates, values, idx = [], [], 1
+        for field in ("title", "description"):
+            if field in args:
+                updates.append(f"{field} = ${idx}"); values.append(args[field]); idx += 1
+        has_field_updates = bool(updates)
+        has_tag_updates = "tags" in args
+        if not has_field_updates and not has_tag_updates:
+            return {"error": "No fields to update"}
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                if has_field_updates:
+                    updates.append("updated_at = NOW()")
+                    values.extend([args["wiki_id"], args["section_id"]])
+                    row = await conn.fetchrow(f"UPDATE wiki_sections SET {', '.join(updates)} WHERE wiki_id = ${idx} AND section_id = ${idx + 1} RETURNING section_id, title", *values)
+                    if not row:
+                        return {"error": "Section not found"}
+                else:
+                    row = await conn.fetchrow("UPDATE wiki_sections SET updated_at = NOW() WHERE wiki_id = $1 AND section_id = $2 RETURNING section_id, title", args["wiki_id"], args["section_id"])
+                    if not row:
+                        return {"error": "Section not found"}
+                if has_tag_updates:
+                    await conn.execute("DELETE FROM wiki_section_tags WHERE section_id = $1", args["section_id"])
+                    tags = args.get("tags") or []
+                    if tags:
+                        await conn.executemany("INSERT INTO wiki_section_tags (section_id, tag) VALUES ($1, $2)", [(args["section_id"], tag) for tag in tags])
+                await conn.execute("UPDATE wikis SET updated_at = NOW() WHERE wiki_id = $1", args["wiki_id"])
+        result = dict(row)
+        if has_tag_updates:
+            result["tags"] = args.get("tags") or []
+        return {"updated": result}
+
+    if name == "delete_wiki_section":
+        wiki = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not wiki:
+            return {"error": "Wiki not found"}
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute("WITH RECURSIVE subtree AS (SELECT section_id FROM wiki_sections WHERE wiki_id = $1 AND section_id = $2 UNION ALL SELECT ws.section_id FROM wiki_sections ws INNER JOIN subtree s ON ws.parent_id = s.section_id WHERE ws.wiki_id = $1) DELETE FROM wiki_sections WHERE section_id IN (SELECT section_id FROM subtree)", args["wiki_id"], args["section_id"])
+                deleted_count = int(result.split()[-1])
+                if deleted_count == 0:
+                    return {"error": "Section not found"}
+                await conn.execute("UPDATE wikis SET updated_at = NOW() WHERE wiki_id = $1", args["wiki_id"])
+        return {"deleted": args["section_id"], "descendants_deleted": deleted_count - 1}
+
+    if name == "get_wiki_tags":
+        wiki = await pool.fetchrow("SELECT wiki_id FROM wikis WHERE wiki_id = $1 AND user_id = $2", args["wiki_id"], caller["user_id"])
+        if not wiki:
+            return {"error": "Wiki not found"}
+        rows = await pool.fetch("SELECT DISTINCT wst.tag FROM wiki_section_tags wst JOIN wiki_sections ws ON wst.section_id = ws.section_id WHERE ws.wiki_id = $1 ORDER BY wst.tag", args["wiki_id"])
+        return {"wiki_id": args["wiki_id"], "tags": [r["tag"] for r in rows]}
+
+    if name == "search_wiki_tag":
+        rows = await pool.fetch("""
+            SELECT w.wiki_id, w.title AS wiki_title,
+                   ws.section_id, ws.title, ws.description, ws.updated_at
+            FROM wiki_section_tags wst
+            JOIN wiki_sections ws ON wst.section_id = ws.section_id
+            JOIN wikis w ON ws.wiki_id = w.wiki_id
+            WHERE wst.tag = $1 AND w.user_id = $2
+            ORDER BY w.wiki_id, ws.section_id
+        """, args["tag"], caller["user_id"])
+        section_ids = [r["section_id"] for r in rows]
+        tags_by_section_search: dict[int, list[str]] = {sid: [] for sid in section_ids}
+        if section_ids:
+            tag_rows = await pool.fetch("SELECT section_id, tag FROM wiki_section_tags WHERE section_id = ANY($1) ORDER BY section_id, tag", section_ids)
+            for tr in tag_rows:
+                tags_by_section_search[tr["section_id"]].append(tr["tag"])
+        sections = []
+        for r in rows:
+            sections.append({"wiki_id": r["wiki_id"], "wiki_title": r["wiki_title"], "section_id": r["section_id"], "title": r["title"], "description": r["description"], "updated_at": r["updated_at"], "tags": tags_by_section_search[r["section_id"]]})
+        return {"tag": args["tag"], "sections": sections}
 
     # ── Sessions ──────────────────────────────────────────────────
     if name == "create_session":

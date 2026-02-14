@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from starlette.routing import Mount
 from .database import init_pool, close_pool
-from .routes import time, context, memories, sessions, preferences, projects, save, secrets, handoffs, images, google_docs, hints
+from .routes import time, context, memories, sessions, preferences, projects, save, secrets, handoffs, images, google_docs, hints, wikis
 from .mcp_server import create_mcp_session_manager
 
 logger = logging.getLogger(__name__)
@@ -178,3 +178,4 @@ app.include_router(handoffs.router)
 app.include_router(images.router)
 app.include_router(google_docs.router)
 app.include_router(hints.router)
+app.include_router(wikis.router)
