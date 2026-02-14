@@ -6,5 +6,17 @@ snowcapsystems.com, www.snowcapsystems.com {
 lucyapi.snowcapsystems.com {
 	header Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
 	header Pragma "no-cache"
-	reverse_proxy localhost:8100
+
+	handle_path /nanoimages/* {
+		root * /opt/lucyapi/output/images
+		file_server
+	}
+
+	handle {
+		reverse_proxy localhost:8100
+	}
+}
+
+webfetch.snowcapsystems.com {
+	reverse_proxy localhost:8200
 }
