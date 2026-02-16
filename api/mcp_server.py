@@ -136,7 +136,9 @@ def create_mcp_server() -> Server:
             _tool("delete_section", "Delete a section and descendants.", {**_K, **_PJ, **_SC}, ["project_id", "section_id"]),
             # Hints (user-scoped)
             _tool("get_hints", "Full hints tree with descriptions.", {**_K}),
+            _tool("get_hints_compact", "Hint tree with titles only — no descriptions. For quick category/hint discovery.", {**_K}),
             _tool("get_hint", "Hint node and its children.", {**_K, "hint_id": {"type": "integer", "description": "Hint ID"}}, ["hint_id"]),
+            _tool("create_hint_category", "Create a new top-level hint category.", {**_K, **_T, **_D}, ["title"]),
             _tool("create_hint", "Create a hint node.", {**_K, **_T, **_D, **_PAR}, ["title"]),
             _tool("update_hint", "Update a hint node.", {**_K, "hint_id": {"type": "integer", "description": "Hint ID"}, **_T, **_D}, ["hint_id"]),
             _tool("delete_hint", "Delete a hint node and children.", {**_K, "hint_id": {"type": "integer", "description": "Hint ID"}}, ["hint_id"]),
@@ -485,6 +487,10 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         rows = await pool.fetch("SELECT hint_id, parent_id, title, description FROM hints WHERE user_id = $1 ORDER BY parent_id, hint_id", caller["user_id"])
         return {"hints": [dict(r) for r in rows]}
 
+    if name == "get_hints_compact":
+        rows = await pool.fetch("SELECT hint_id, parent_id, title FROM hints WHERE user_id = $1 ORDER BY parent_id, hint_id", caller["user_id"])
+        return {"hints": [dict(r) for r in rows]}
+
     if name == "get_hint":
         node = await pool.fetchrow("SELECT hint_id, parent_id, title, description FROM hints WHERE user_id = $1 AND hint_id = $2", caller["user_id"], args["hint_id"])
         if not node:
@@ -492,9 +498,40 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         children = await pool.fetch("SELECT hint_id, parent_id, title, description FROM hints WHERE user_id = $1 AND parent_id = $2 ORDER BY hint_id", caller["user_id"], args["hint_id"])
         return {"node": dict(node), "children": [dict(r) for r in children]}
 
+    if name == "create_hint_category":
+        row = await pool.fetchrow(
+            "INSERT INTO hints (user_id, parent_id, title, description, hint_category_id) VALUES ($1, 0, $2, $3, 0) RETURNING hint_id, title",
+            caller["user_id"], args["title"], args.get("description")
+        )
+        await pool.execute("UPDATE hints SET hint_category_id = $1 WHERE hint_id = $1", row["hint_id"])
+        result = dict(row)
+        result["hint_category_id"] = row["hint_id"]
+        return {"created": result}
+
     if name == "create_hint":
-        row = await pool.fetchrow("INSERT INTO hints (user_id, parent_id, title, description) VALUES ($1, $2, $3, $4) RETURNING hint_id, parent_id, title", caller["user_id"], args.get("parent_id", 0), args["title"], args.get("description"))
-        return {"created": dict(row)}
+        parent_id = args.get("parent_id", 0)
+        if parent_id == 0:
+            # Root category — use create_hint_category instead, but handle for backward compat
+            row = await pool.fetchrow(
+                "INSERT INTO hints (user_id, parent_id, title, description, hint_category_id) VALUES ($1, 0, $2, $3, 0) RETURNING hint_id, parent_id, title",
+                caller["user_id"], args["title"], args.get("description")
+            )
+            await pool.execute("UPDATE hints SET hint_category_id = $1 WHERE hint_id = $1", row["hint_id"])
+            result = dict(row)
+            result["hint_category_id"] = row["hint_id"]
+            return {"created": result}
+        else:
+            # Child hint — look up parent to get hint_category_id
+            parent = await pool.fetchrow("SELECT hint_id, user_id, hint_category_id FROM hints WHERE hint_id = $1", parent_id)
+            if not parent:
+                return {"error": "Parent hint not found"}
+            if parent["user_id"] != caller["user_id"]:
+                return {"error": "Parent hint not found"}
+            row = await pool.fetchrow(
+                "INSERT INTO hints (user_id, parent_id, title, description, hint_category_id) VALUES ($1, $2, $3, $4, $5) RETURNING hint_id, parent_id, title, hint_category_id",
+                parent["user_id"], parent_id, args["title"], args.get("description"), parent["hint_category_id"]
+            )
+            return {"created": dict(row)}
 
     if name == "update_hint":
         updates, values, idx = [], [], 1

@@ -24,6 +24,9 @@ output/
 # Server config (deploy-specific)
 Caddyfile
 
+# Frontend (separate repo: RickAtSnowcap/lucyadmin)
+frontend/
+
 # IDE
 .vscode/
 .idea/

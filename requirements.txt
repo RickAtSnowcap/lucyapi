@@ -2,3 +2,5 @@ fastapi
 uvicorn
 asyncpg
 google-api-python-client
+bcrypt
+PyJWT

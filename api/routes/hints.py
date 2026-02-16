@@ -8,6 +8,11 @@ from .sharing import check_share_permission
 router = APIRouter()
 
 
+class HintCategoryCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+
 class HintCreate(BaseModel):
     parent_id: int = 0
     title: str
@@ -28,6 +33,24 @@ async def get_hints(caller: dict = Depends(verify_api_key)):
            FROM hints WHERE user_id = $1
            UNION ALL
            SELECT h.hint_id, h.parent_id, h.title, h.description, h.hint_category_id, 'shared' as access, so.permission_level
+           FROM hints h
+           JOIN shared_objects so ON so.object_id = h.hint_category_id AND so.object_type_id = 2
+           WHERE so.shared_to_user_id = $1
+           ORDER BY parent_id, hint_id""",
+        caller["user_id"]
+    )
+    return {"hints": [dict(r) for r in rows]}
+
+
+@router.get("/hints/compact")
+async def get_hints_compact(caller: dict = Depends(verify_api_key)):
+    """Hint tree with titles only — no descriptions. For quick category/hint discovery."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """SELECT hint_id, parent_id, title
+           FROM hints WHERE user_id = $1
+           UNION ALL
+           SELECT h.hint_id, h.parent_id, h.title
            FROM hints h
            JOIN shared_objects so ON so.object_id = h.hint_category_id AND so.object_type_id = 2
            WHERE so.shared_to_user_id = $1
@@ -60,6 +83,24 @@ async def get_hint(hint_id: int, caller: dict = Depends(verify_api_key)):
     result = dict(node)
     del result["user_id"]
     return {"node": result, "children": [dict(r) for r in children]}
+
+
+@router.post("/hint_categories")
+async def create_hint_category(cat: HintCategoryCreate, caller: dict = Depends(verify_api_key)):
+    """Create a new top-level hint category."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "INSERT INTO hints (user_id, parent_id, title, description, hint_category_id) VALUES ($1, 0, $2, $3, 0) RETURNING hint_id, title",
+        caller["user_id"], cat.title, cat.description
+    )
+    # Set hint_category_id to self (root categories are their own category)
+    await pool.execute(
+        "UPDATE hints SET hint_category_id = $1 WHERE hint_id = $1",
+        row["hint_id"]
+    )
+    result = dict(row)
+    result["hint_category_id"] = row["hint_id"]
+    return {"created": result}
 
 
 @router.post("/hints")

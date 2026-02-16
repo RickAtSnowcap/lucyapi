@@ -4,7 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from starlette.routing import Mount
 from .database import init_pool, close_pool
+from fastapi.middleware.cors import CORSMiddleware
 from .routes import time, context, memories, sessions, preferences, projects, save, secrets, handoffs, images, google_docs, hints, wikis, sharing
+from .routes import admin_auth, admin_agents, admin_resources
 from .mcp_server import create_mcp_session_manager
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,17 @@ app = FastAPI(
     description="Multi-user, multi-agent context service for Snowcap Systems",
     version="1.0.0",
     lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://admin.snowcapsystems.com",
+        "http://localhost:5173",  # Vite dev server
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.middleware("http")
@@ -68,7 +81,7 @@ async def api_root():
             "endpoint": "https://lucyapi.snowcapsystems.com/mcp",
             "transport": "Streamable HTTP (stateless)",
             "auth": "None (authless connector — agent key baked into server)",
-            "tools": 74,
+            "tools": 76,
             "note": "Add as custom connector in Claude Settings > Connectors"
         },
         "access_model": {
@@ -147,7 +160,9 @@ async def api_root():
             ],
             "hints": [
                 {"method": "GET", "path": "/hints", "auth": True, "description": "Full hints tree with descriptions"},
+                {"method": "GET", "path": "/hints/compact", "auth": True, "description": "Hint tree with titles only — no descriptions"},
                 {"method": "GET", "path": "/hints/{hint_id}", "auth": True, "description": "Hint node and its immediate children"},
+                {"method": "POST", "path": "/hint_categories", "auth": True, "description": "Create a new top-level hint category"},
                 {"method": "POST", "path": "/hints", "auth": True, "description": "Create a hint node (user-scoped write)"},
                 {"method": "PUT", "path": "/hints/{hint_id}", "auth": True, "description": "Update a hint (user-scoped write)"},
                 {"method": "DELETE", "path": "/hints/{hint_id}", "auth": True, "description": "Delete a hint node + descendants (user-scoped write)"}
@@ -187,3 +202,6 @@ app.include_router(google_docs.router)
 app.include_router(hints.router)
 app.include_router(wikis.router)
 app.include_router(sharing.router)
+app.include_router(admin_auth.router)
+app.include_router(admin_agents.router)
+app.include_router(admin_resources.router)
