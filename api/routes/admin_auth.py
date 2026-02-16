@@ -58,3 +58,29 @@ async def get_me(user: dict = Depends(verify_user_token)):
         "username": user["username"],
         "email": user.get("email")
     }
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.put("/password")
+async def change_password(req: ChangePasswordRequest, user: dict = Depends(verify_user_token)):
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT password_hash FROM users WHERE user_id = $1",
+        user["user_id"]
+    )
+    if not row or not verify_password(req.current_password, row["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+
+    new_hash = hash_password(req.new_password)
+    await pool.execute(
+        "UPDATE users SET password_hash = $1 WHERE user_id = $2",
+        new_hash, user["user_id"]
+    )
+    return {"ok": True}
