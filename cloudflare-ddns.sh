@@ -9,7 +9,7 @@ IP_CACHE="/var/cache/cloudflare-ddns-ip"
 CF_API="https://api.cloudflare.com/client/v4"
 
 # A records to maintain (space-separated)
-RECORDS="snowcapsystems.com lucyapi.snowcapsystems.com"
+RECORDS="snowcapsystems.com lucyapi.snowcapsystems.com admin.snowcapsystems.com"
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"
