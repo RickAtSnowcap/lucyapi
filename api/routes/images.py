@@ -53,6 +53,17 @@ class AnalyzeImageRequest(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────
 
+async def _resolve_user_id(agent_key: Optional[str]) -> Optional[int]:
+    """Resolve user_id from an agent_key. Returns None if not provided or invalid."""
+    if not agent_key:
+        return None
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT user_id FROM agents WHERE api_key = $1", agent_key
+    )
+    return row["user_id"] if row else None
+
+
 def _make_filename() -> str:
     """Generate a unique filename: gen_{timestamp}_{short_hash}.png"""
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -112,8 +123,9 @@ def _row_to_dict(row) -> dict:
 # ── Generation ────────────────────────────────────────────────────
 
 @router.post("/genimage")
-async def gen_image(req: GenImageRequest):
+async def gen_image(req: GenImageRequest, agent_key: Optional[str] = Query(default=None)):
     """Generate an image from a text prompt via Gemini."""
+    user_id = await _resolve_user_id(agent_key)
     try:
         result = generate_image(
             prompt=req.prompt,
@@ -143,11 +155,11 @@ async def gen_image(req: GenImageRequest):
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        INSERT INTO images (filename, prompt, model, size_bytes, width, height)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO images (user_id, filename, prompt, model, size_bytes, width, height)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING image_id, filename, prompt, model, created_at, keep, size_bytes, width, height
         """,
-        filename, req.prompt, result["model_used"], size_bytes, width, height,
+        user_id, filename, req.prompt, result["model_used"], size_bytes, width, height,
     )
 
     return _row_to_dict(row)
@@ -156,8 +168,9 @@ async def gen_image(req: GenImageRequest):
 # ── Edit ──────────────────────────────────────────────────────────
 
 @router.post("/genimage/edit")
-async def gen_image_edit(req: EditImageRequest):
+async def gen_image_edit(req: EditImageRequest, agent_key: Optional[str] = Query(default=None)):
     """Edit an existing image with a text prompt via Gemini."""
+    user_id = await _resolve_user_id(agent_key)
     source_bytes, source_desc = await _load_source_image(req.image_id, req.image_url)
 
     try:
@@ -190,11 +203,11 @@ async def gen_image_edit(req: EditImageRequest):
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        INSERT INTO images (filename, prompt, model, size_bytes, width, height)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO images (user_id, filename, prompt, model, size_bytes, width, height)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING image_id, filename, prompt, model, created_at, keep, size_bytes, width, height
         """,
-        filename, edit_prompt, result["model_used"], size_bytes, width, height,
+        user_id, filename, edit_prompt, result["model_used"], size_bytes, width, height,
     )
 
     return _row_to_dict(row)
@@ -226,13 +239,20 @@ async def gen_image_analyze(req: AnalyzeImageRequest):
 # ── Cleanup (before /{image_id} routes to avoid collision) ────────
 
 @router.post("/images/cleanup")
-async def cleanup_images():
+async def cleanup_images(agent_key: Optional[str] = Query(default=None)):
     """Bulk delete all images where keep=false. Returns count deleted."""
     pool = await get_pool()
+    user_id = await _resolve_user_id(agent_key)
 
-    rows = await pool.fetch(
-        "SELECT image_id, filename FROM images WHERE keep = false"
-    )
+    if user_id is not None:
+        rows = await pool.fetch(
+            "SELECT image_id, filename FROM images WHERE keep = false AND user_id = $1",
+            user_id,
+        )
+    else:
+        rows = await pool.fetch(
+            "SELECT image_id, filename FROM images WHERE keep = false"
+        )
 
     if not rows:
         return {"deleted": 0}
@@ -246,7 +266,10 @@ async def cleanup_images():
         except Exception as e:
             logger.error(f"Failed to delete image file {row['filename']}: {e}")
 
-    result = await pool.execute("DELETE FROM images WHERE keep = false")
+    image_ids = [row["image_id"] for row in rows]
+    result = await pool.execute(
+        "DELETE FROM images WHERE image_id = ANY($1)", image_ids
+    )
     count = int(result.split()[-1])
 
     return {"deleted": count}
@@ -259,32 +282,39 @@ async def list_images(
     keep: Optional[bool] = Query(default=None, description="Filter by keep flag"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    agent_key: Optional[str] = Query(default=None),
 ):
     """List images with optional filtering."""
     pool = await get_pool()
+    user_id = await _resolve_user_id(agent_key)
+
+    conditions = []
+    params = []
+    idx = 1
+
+    if user_id is not None:
+        conditions.append(f"user_id = ${idx}")
+        params.append(user_id)
+        idx += 1
 
     if keep is not None:
-        rows = await pool.fetch(
-            """
-            SELECT image_id, filename, prompt, model, created_at, keep,
-                   size_bytes, width, height
-            FROM images WHERE keep = $1
-            ORDER BY created_at DESC
-            LIMIT $2 OFFSET $3
-            """,
-            keep, limit, offset,
-        )
-    else:
-        rows = await pool.fetch(
-            """
-            SELECT image_id, filename, prompt, model, created_at, keep,
-                   size_bytes, width, height
-            FROM images
-            ORDER BY created_at DESC
-            LIMIT $1 OFFSET $2
-            """,
-            limit, offset,
-        )
+        conditions.append(f"keep = ${idx}")
+        params.append(keep)
+        idx += 1
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.extend([limit, offset])
+
+    rows = await pool.fetch(
+        f"""
+        SELECT image_id, filename, prompt, model, created_at, keep,
+               size_bytes, width, height
+        FROM images {where}
+        ORDER BY created_at DESC
+        LIMIT ${idx} OFFSET ${idx + 1}
+        """,
+        *params,
+    )
 
     return [_row_to_dict(row) for row in rows]
 

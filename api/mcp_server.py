@@ -905,7 +905,7 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         import httpx
         body = {"prompt": args["prompt"], "model": args.get("model", "nano-banana"), "aspect_ratio": args.get("aspect_ratio", "1:1")}
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(f"{BASE_URL}/genimage", json=body)
+            resp = await client.post(f"{BASE_URL}/genimage", json=body, params={"agent_key": agent_key})
             resp.raise_for_status()
             return resp.json()
 
@@ -917,7 +917,7 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         if "image_url" in args:
             body["image_url"] = args["image_url"]
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(f"{BASE_URL}/genimage/edit", json=body)
+            resp = await client.post(f"{BASE_URL}/genimage/edit", json=body, params={"agent_key": agent_key})
             resp.raise_for_status()
             return resp.json()
 
@@ -934,7 +934,7 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
             return resp.json()
 
     if name == "list_images":
-        params = {}
+        params = {"agent_key": agent_key}
         if "keep" in args:
             params["keep"] = str(args["keep"]).lower()
         if "limit" in args:
@@ -965,7 +965,7 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
     if name == "cleanup_images":
         import httpx
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(f"{BASE_URL}/images/cleanup")
+            resp = await client.post(f"{BASE_URL}/images/cleanup", params={"agent_key": agent_key})
             resp.raise_for_status()
             return resp.json()
 
