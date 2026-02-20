@@ -155,9 +155,24 @@ async def get_project(project_id: int, user: dict = Depends(verify_user_token)):
         "SELECT section_id, parent_id, title, description, file_path FROM project_sections WHERE project_id = $1 ORDER BY parent_id, section_id",
         project_id
     )
+    if access == "owned":
+        agent_row = await pool.fetchrow(
+            "SELECT api_key FROM agents WHERE user_id = $1 ORDER BY agent_id LIMIT 1",
+            user["user_id"]
+        )
+    else:
+        owner_row = await pool.fetchrow(
+            "SELECT user_id FROM projects WHERE project_id = $1", project_id
+        )
+        agent_row = await pool.fetchrow(
+            "SELECT api_key FROM agents WHERE user_id = $1 ORDER BY agent_id LIMIT 1",
+            owner_row["user_id"]
+        )
+
     result = dict(project)
     result["access"] = access
     result["permission_level"] = permission_level
+    result["document_url"] = f"https://lucyapi.snowcapsystems.com/projects/{project_id}/document?agent_key={agent_row['api_key']}" if agent_row else None
     return {
         "project": result,
         "sections": [dict(r) for r in sections]
