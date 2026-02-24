@@ -79,9 +79,11 @@ async def get_agent_context(agent_name: str, caller: dict = Depends(verify_api_k
         agent["agent_id"]
     )
 
-    # Projects: titles only (manifest for on-demand loading)
+    # Projects: titles + status (manifest for on-demand loading)
     project_rows = await pool.fetch(
-        "SELECT project_id, title FROM projects WHERE user_id = $1 ORDER BY project_id",
+        """SELECT p.project_id, p.title, ps.code as status
+           FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id
+           WHERE p.user_id = $1 ORDER BY p.project_id""",
         agent["user_id"]
     )
 

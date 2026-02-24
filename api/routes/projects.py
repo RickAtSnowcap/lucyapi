@@ -15,11 +15,13 @@ router = APIRouter()
 class ProjectCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    status_id: Optional[int] = None
 
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    status_id: Optional[int] = None
 
 
 class SectionCreate(BaseModel):
@@ -35,21 +37,48 @@ class SectionUpdate(BaseModel):
     file_path: Optional[str] = None
 
 
+@router.get("/project-statuses")
+async def get_project_statuses():
+    """All project status options (no auth required — lookup table)."""
+    pool = await get_pool()
+    rows = await pool.fetch("SELECT status_id, code, label, sort_order FROM project_statuses ORDER BY sort_order")
+    return {"statuses": [dict(r) for r in rows]}
+
+
 @router.get("/projects")
-async def get_projects(caller: dict = Depends(verify_api_key)):
+async def get_projects(status: Optional[str] = None, caller: dict = Depends(verify_api_key)):
     """All projects for the caller's user, including shared projects."""
     pool = await get_pool()
-    rows = await pool.fetch(
-        """SELECT project_id, title, description, 'owned' as access, 3 as permission_level
-           FROM projects WHERE user_id = $1
-           UNION ALL
-           SELECT p.project_id, p.title, p.description, 'shared' as access, so.permission_level
-           FROM projects p
-           JOIN shared_objects so ON so.object_id = p.project_id AND so.object_type_id = 1
-           WHERE so.shared_to_user_id = $1
-           ORDER BY project_id""",
-        caller["user_id"]
-    )
+    if status:
+        rows = await pool.fetch(
+            """SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label, 'owned' as access, 3 as permission_level
+               FROM projects p
+               JOIN project_statuses ps ON p.status_id = ps.status_id
+               WHERE p.user_id = $1 AND ps.code = $2
+               UNION ALL
+               SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label, 'shared' as access, so.permission_level
+               FROM projects p
+               JOIN project_statuses ps ON p.status_id = ps.status_id
+               JOIN shared_objects so ON so.object_id = p.project_id AND so.object_type_id = 1
+               WHERE so.shared_to_user_id = $1 AND ps.code = $2
+               ORDER BY project_id""",
+            caller["user_id"], status
+        )
+    else:
+        rows = await pool.fetch(
+            """SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label, 'owned' as access, 3 as permission_level
+               FROM projects p
+               JOIN project_statuses ps ON p.status_id = ps.status_id
+               WHERE p.user_id = $1
+               UNION ALL
+               SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label, 'shared' as access, so.permission_level
+               FROM projects p
+               JOIN project_statuses ps ON p.status_id = ps.status_id
+               JOIN shared_objects so ON so.object_id = p.project_id AND so.object_type_id = 1
+               WHERE so.shared_to_user_id = $1
+               ORDER BY project_id""",
+            caller["user_id"]
+        )
     return {"projects": [dict(r) for r in rows]}
 
 
@@ -58,7 +87,9 @@ async def get_project(project_id: int, caller: dict = Depends(verify_api_key)):
     """Project header with section tree."""
     pool = await get_pool()
     project = await pool.fetchrow(
-        "SELECT project_id, title, description FROM projects WHERE project_id = $1 AND user_id = $2",
+        """SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label
+           FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id
+           WHERE p.project_id = $1 AND p.user_id = $2""",
         project_id, caller["user_id"]
     )
     access = "owned"
@@ -68,7 +99,9 @@ async def get_project(project_id: int, caller: dict = Depends(verify_api_key)):
         if not perm:
             raise HTTPException(status_code=404, detail="Project not found")
         project = await pool.fetchrow(
-            "SELECT project_id, title, description FROM projects WHERE project_id = $1",
+            """SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label
+               FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id
+               WHERE p.project_id = $1""",
             project_id
         )
         access = "shared"
@@ -121,11 +154,26 @@ async def get_section(project_id: int, section_id: int, caller: dict = Depends(v
 async def create_project(project: ProjectCreate, caller: dict = Depends(verify_api_key)):
     """Create a project. User approval enforced by agent behavior."""
     pool = await get_pool()
-    row = await pool.fetchrow(
-        "INSERT INTO projects (user_id, title, description) VALUES ($1, $2, $3) RETURNING project_id, title",
-        caller["user_id"], project.title, project.description
+    if project.status_id is not None:
+        row = await pool.fetchrow(
+            """INSERT INTO projects (user_id, title, description, status_id) VALUES ($1, $2, $3, $4)
+               RETURNING project_id, title""",
+            caller["user_id"], project.title, project.description, project.status_id
+        )
+    else:
+        row = await pool.fetchrow(
+            "INSERT INTO projects (user_id, title, description) VALUES ($1, $2, $3) RETURNING project_id, title",
+            caller["user_id"], project.title, project.description
+        )
+    result = dict(row)
+    ps = await pool.fetchrow(
+        "SELECT ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.project_id = $1",
+        result["project_id"]
     )
-    return {"created": dict(row)}
+    if ps:
+        result["status"] = ps["status"]
+        result["status_label"] = ps["status_label"]
+    return {"created": result}
 
 
 @router.post("/projects/{project_id}/sections")
@@ -172,6 +220,10 @@ async def update_project(project_id: int, project: ProjectUpdate, caller: dict =
         updates.append(f"description = ${idx}")
         values.append(project.description)
         idx += 1
+    if project.status_id is not None:
+        updates.append(f"status_id = ${idx}")
+        values.append(project.status_id)
+        idx += 1
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -180,7 +232,15 @@ async def update_project(project_id: int, project: ProjectUpdate, caller: dict =
     values.append(project_id)
     sql = f"UPDATE projects SET {', '.join(updates)} WHERE project_id = ${idx} RETURNING project_id, title"
     row = await pool.fetchrow(sql, *values)
-    return {"updated": dict(row)}
+    result = dict(row)
+    ps = await pool.fetchrow(
+        "SELECT ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.project_id = $1",
+        project_id
+    )
+    if ps:
+        result["status"] = ps["status"]
+        result["status_label"] = ps["status_label"]
+    return {"updated": result}
 
 
 @router.put("/projects/{project_id}/sections/{section_id}")
@@ -645,7 +705,9 @@ async def get_project_document(project_id: int, caller: dict = Depends(verify_ap
     """Reconstitute a project as a self-contained HTML document."""
     pool = await get_pool()
     project = await pool.fetchrow(
-        "SELECT project_id, title, description, created_at, updated_at FROM projects WHERE project_id = $1 AND user_id = $2",
+        """SELECT p.project_id, p.title, p.description, p.created_at, p.updated_at, ps.label as status_label
+           FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id
+           WHERE p.project_id = $1 AND p.user_id = $2""",
         project_id, caller["user_id"]
     )
     if not project:
@@ -653,7 +715,9 @@ async def get_project_document(project_id: int, caller: dict = Depends(verify_ap
         if not perm:
             raise HTTPException(status_code=404, detail="Project not found")
         project = await pool.fetchrow(
-            "SELECT project_id, title, description, created_at, updated_at FROM projects WHERE project_id = $1",
+            """SELECT p.project_id, p.title, p.description, p.created_at, p.updated_at, ps.label as status_label
+               FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id
+               WHERE p.project_id = $1""",
             project_id
         )
 
@@ -669,7 +733,8 @@ async def get_project_document(project_id: int, caller: dict = Depends(verify_ap
         description_html = f'<div class="description">{_render_description(project["description"])}</div>'
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    meta = f"Generated: {now} &middot; Sections: {len(sections)}"
+    status_label = project.get("status_label", "")
+    meta = f"Status: {escape(status_label)} &middot; Generated: {now} &middot; Sections: {len(sections)}"
 
     toc = _build_toc(tree) if tree else ""
     body_parts = [_render_section_html(node, 2) for node in tree]

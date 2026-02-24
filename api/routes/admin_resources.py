@@ -43,10 +43,12 @@ def _build_tree(rows):
 class ProjectCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    status_id: Optional[int] = None
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    status_id: Optional[int] = None
 
 class SectionCreate(BaseModel):
     parent_id: int = 0
@@ -114,15 +116,25 @@ class KeepRequest(BaseModel):
 
 # ── Projects ────────────────────────────────────────────────────
 
+@router.get("/project-statuses")
+async def list_project_statuses(user: dict = Depends(verify_user_token)):
+    pool = await get_pool()
+    rows = await pool.fetch("SELECT status_id, code, label, sort_order FROM project_statuses ORDER BY sort_order")
+    return {"statuses": [dict(r) for r in rows]}
+
+
 @router.get("/projects")
 async def list_projects(user: dict = Depends(verify_user_token)):
     pool = await get_pool()
     rows = await pool.fetch(
-        """SELECT project_id, title, description, 'owned' as access, 3 as permission_level
-           FROM projects WHERE user_id = $1
-           UNION ALL
-           SELECT p.project_id, p.title, p.description, 'shared' as access, so.permission_level
+        """SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label, 'owned' as access, 3 as permission_level
            FROM projects p
+           JOIN project_statuses ps ON p.status_id = ps.status_id
+           WHERE p.user_id = $1
+           UNION ALL
+           SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label, 'shared' as access, so.permission_level
+           FROM projects p
+           JOIN project_statuses ps ON p.status_id = ps.status_id
            JOIN shared_objects so ON so.object_id = p.project_id AND so.object_type_id = 1
            WHERE so.shared_to_user_id = $1
            ORDER BY project_id""",
@@ -135,7 +147,9 @@ async def list_projects(user: dict = Depends(verify_user_token)):
 async def get_project(project_id: int, user: dict = Depends(verify_user_token)):
     pool = await get_pool()
     project = await pool.fetchrow(
-        "SELECT project_id, title, description FROM projects WHERE project_id = $1 AND user_id = $2",
+        """SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label
+           FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id
+           WHERE p.project_id = $1 AND p.user_id = $2""",
         project_id, user["user_id"]
     )
     access = "owned"
@@ -145,7 +159,9 @@ async def get_project(project_id: int, user: dict = Depends(verify_user_token)):
         if not perm:
             raise HTTPException(status_code=404, detail="Project not found")
         project = await pool.fetchrow(
-            "SELECT project_id, title, description FROM projects WHERE project_id = $1",
+            """SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label
+               FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id
+               WHERE p.project_id = $1""",
             project_id
         )
         access = "shared"
@@ -182,11 +198,25 @@ async def get_project(project_id: int, user: dict = Depends(verify_user_token)):
 @router.post("/projects")
 async def create_project(project: ProjectCreate, user: dict = Depends(verify_user_token)):
     pool = await get_pool()
-    row = await pool.fetchrow(
-        "INSERT INTO projects (user_id, title, description) VALUES ($1, $2, $3) RETURNING project_id, title",
-        user["user_id"], project.title, project.description
+    if project.status_id is not None:
+        row = await pool.fetchrow(
+            "INSERT INTO projects (user_id, title, description, status_id) VALUES ($1, $2, $3, $4) RETURNING project_id, title",
+            user["user_id"], project.title, project.description, project.status_id
+        )
+    else:
+        row = await pool.fetchrow(
+            "INSERT INTO projects (user_id, title, description) VALUES ($1, $2, $3) RETURNING project_id, title",
+            user["user_id"], project.title, project.description
+        )
+    result = dict(row)
+    ps = await pool.fetchrow(
+        "SELECT ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.project_id = $1",
+        result["project_id"]
     )
-    return {"created": dict(row)}
+    if ps:
+        result["status"] = ps["status"]
+        result["status_label"] = ps["status_label"]
+    return {"created": result}
 
 
 @router.put("/projects/{project_id}")
@@ -212,6 +242,10 @@ async def update_project(project_id: int, project: ProjectUpdate, user: dict = D
         updates.append(f"description = ${idx}")
         values.append(project.description)
         idx += 1
+    if project.status_id is not None:
+        updates.append(f"status_id = ${idx}")
+        values.append(project.status_id)
+        idx += 1
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -220,7 +254,15 @@ async def update_project(project_id: int, project: ProjectUpdate, user: dict = D
     values.append(project_id)
     sql = f"UPDATE projects SET {', '.join(updates)} WHERE project_id = ${idx} RETURNING project_id, title"
     row = await pool.fetchrow(sql, *values)
-    return {"updated": dict(row)}
+    result = dict(row)
+    ps = await pool.fetchrow(
+        "SELECT ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.project_id = $1",
+        project_id
+    )
+    if ps:
+        result["status"] = ps["status"]
+        result["status_label"] = ps["status_label"]
+    return {"updated": result}
 
 
 @router.delete("/projects/{project_id}")

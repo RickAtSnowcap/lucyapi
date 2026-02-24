@@ -125,12 +125,13 @@ def create_mcp_server() -> Server:
             _tool("create_preference", "Create a preference node.", {**_K, **_A, **_T, **_D, **_PAR}, ["agent_name", "title"]),
             _tool("update_preference", "Update a preference node.", {**_K, **_A, **_ID, **_T, **_D}, ["agent_name", "pkid"]),
             _tool("delete_preference", "Delete a preference node and children.", {**_K, **_A, **_ID}, ["agent_name", "pkid"]),
-            _tool("get_projects", "All projects for the user.", {**_K}),
+            _tool("get_project_statuses", "List all project status options.", {**_K}),
+            _tool("get_projects", "All projects for the user.", {**_K, "status": {"type": "string", "description": "Filter by status code (planning, active, on_hold, evolving, complete, archived)"}},),
             _tool("get_project", "Project header with section tree.", {**_K, **_PJ}, ["project_id"]),
             _tool("get_section", "Project section and its children.", {**_K, **_PJ, **_SC}, ["project_id", "section_id"]),
-            _tool("create_project", "Create a new project.", {**_K, **_T, **_D}, ["title"]),
+            _tool("create_project", "Create a new project.", {**_K, **_T, **_D, "status_id": {"type": "integer", "description": "Status ID (default: 1=planning)"}}, ["title"]),
             _tool("create_section", "Create a section under a project.", {**_K, **_PJ, **_T, **_D, **_PAR, **_FP}, ["project_id", "title"]),
-            _tool("update_project", "Update a project.", {**_K, **_PJ, **_T, **_D}, ["project_id"]),
+            _tool("update_project", "Update a project.", {**_K, **_PJ, **_T, **_D, "status_id": {"type": "integer", "description": "Status ID for lifecycle transitions"}}, ["project_id"]),
             _tool("update_section", "Update a project section.", {**_K, **_PJ, **_SC, **_T, **_D, **_FP}, ["project_id", "section_id"]),
             _tool("delete_project", "Delete a project and all sections.", {**_K, **_PJ}, ["project_id"]),
             _tool("delete_section", "Delete a section and descendants.", {**_K, **_PJ, **_SC}, ["project_id", "section_id"]),
@@ -234,7 +235,7 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         al = await pool.fetch("SELECT pkid, parent_id, title FROM always_load WHERE agent_id = $1 ORDER BY parent_id, pkid", agent["agent_id"])
         mem = await pool.fetch("SELECT pkid, title FROM memories WHERE agent_id = $1 ORDER BY pkid", agent["agent_id"])
         pref = await pool.fetch("SELECT pkid, title FROM preferences WHERE agent_id = $1 AND parent_id = 0 ORDER BY pkid", agent["agent_id"])
-        proj = await pool.fetch("SELECT project_id, title FROM projects WHERE user_id = $1 ORDER BY project_id", caller["user_id"])
+        proj = await pool.fetch("SELECT p.project_id, p.title, ps.code as status FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.user_id = $1 ORDER BY p.project_id", caller["user_id"])
         return {"agent": args["agent_name"], "always_load": [dict(r) for r in al], "memories": [dict(r) for r in mem], "preferences_manifest": [dict(r) for r in pref], "projects_manifest": [dict(r) for r in proj]}
 
     # ── Always Load ───────────────────────────────────────────────
@@ -393,8 +394,16 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         return {"deleted": args["pkid"], "descendants_deleted": count - 1} if count > 0 else {"error": "Preference not found"}
 
     # ── Projects ──────────────────────────────────────────────────
+    if name == "get_project_statuses":
+        rows = await pool.fetch("SELECT status_id, code, label, sort_order FROM project_statuses ORDER BY sort_order")
+        return {"statuses": [dict(r) for r in rows]}
+
     if name == "get_projects":
-        rows = await pool.fetch("SELECT project_id, title, description FROM projects WHERE user_id = $1 ORDER BY project_id", caller["user_id"])
+        status_filter = args.get("status")
+        if status_filter:
+            rows = await pool.fetch("SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.user_id = $1 AND ps.code = $2 ORDER BY p.project_id", caller["user_id"], status_filter)
+        else:
+            rows = await pool.fetch("SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.user_id = $1 ORDER BY p.project_id", caller["user_id"])
         projects = []
         for r in rows:
             p = dict(r)
@@ -403,7 +412,7 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         return {"projects": projects}
 
     if name == "get_project":
-        project = await pool.fetchrow("SELECT project_id, title, description FROM projects WHERE project_id = $1 AND user_id = $2", args["project_id"], caller["user_id"])
+        project = await pool.fetchrow("SELECT p.project_id, p.title, p.description, ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.project_id = $1 AND p.user_id = $2", args["project_id"], caller["user_id"])
         if not project:
             return {"error": "Project not found"}
         pid = args["project_id"]
@@ -426,8 +435,17 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         return {"section": sec, "children": [dict(r) for r in children]}
 
     if name == "create_project":
-        row = await pool.fetchrow("INSERT INTO projects (user_id, title, description) VALUES ($1, $2, $3) RETURNING project_id, title", caller["user_id"], args["title"], args.get("description"))
-        return {"created": dict(row)}
+        status_id = args.get("status_id")
+        if status_id is not None:
+            row = await pool.fetchrow("INSERT INTO projects (user_id, title, description, status_id) VALUES ($1, $2, $3, $4) RETURNING project_id, title", caller["user_id"], args["title"], args.get("description"), status_id)
+        else:
+            row = await pool.fetchrow("INSERT INTO projects (user_id, title, description) VALUES ($1, $2, $3) RETURNING project_id, title", caller["user_id"], args["title"], args.get("description"))
+        result = dict(row)
+        ps = await pool.fetchrow("SELECT ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.project_id = $1", result["project_id"])
+        if ps:
+            result["status"] = ps["status"]
+            result["status_label"] = ps["status_label"]
+        return {"created": result}
 
     if name == "create_section":
         project = await pool.fetchrow("SELECT project_id FROM projects WHERE project_id = $1 AND user_id = $2", args["project_id"], caller["user_id"])
@@ -444,12 +462,19 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         for field in ("title", "description"):
             if field in args:
                 updates.append(f"{field} = ${idx}"); values.append(args[field]); idx += 1
+        if "status_id" in args:
+            updates.append(f"status_id = ${idx}"); values.append(args["status_id"]); idx += 1
         if not updates:
             return {"error": "No fields to update"}
         updates.append("updated_at = NOW()")
         values.append(args["project_id"])
         row = await pool.fetchrow(f"UPDATE projects SET {', '.join(updates)} WHERE project_id = ${idx} RETURNING project_id, title", *values)
-        return {"updated": dict(row)}
+        result = dict(row)
+        ps = await pool.fetchrow("SELECT ps.code as status, ps.label as status_label FROM projects p JOIN project_statuses ps ON p.status_id = ps.status_id WHERE p.project_id = $1", args["project_id"])
+        if ps:
+            result["status"] = ps["status"]
+            result["status_label"] = ps["status_label"]
+        return {"updated": result}
 
     if name == "update_section":
         project = await pool.fetchrow("SELECT project_id FROM projects WHERE project_id = $1 AND user_id = $2", args["project_id"], caller["user_id"])
