@@ -395,6 +395,8 @@ def _render_description(text: str) -> str:
     """
     if not text:
         return ""
+    # Normalize literal \n sequences (from JSON storage) to actual newlines
+    text = text.replace("\\n", "\n")
     escaped = escape(text)
     paragraphs = escaped.split("\n\n")
 
