@@ -1,0 +1,22 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+*.nupkg
+
+## IDE
+.vs/
+.vscode/
+*.swp
+*~
+
+## Publish
+publish/
+
+## Secrets
+appsettings.*.local.json

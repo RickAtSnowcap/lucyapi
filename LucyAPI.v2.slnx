@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LucyAPI.Api/LucyAPI.Api.csproj" />
+    <Project Path="src/LucyAPI.Data/LucyAPI.Data.csproj" />
+    <Project Path="src/LucyAPI.Services/LucyAPI.Services.csproj" />
+  </Folder>
+  <Project Path="../tcrypt-lib/TcryptLib.csproj" />
+</Solution>

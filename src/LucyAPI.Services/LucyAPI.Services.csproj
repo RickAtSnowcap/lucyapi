@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../LucyAPI.Data/LucyAPI.Data.csproj" />
+    <ProjectReference Include="/home/rfry/code/tcrypt-lib/TcryptLib.csproj" />
+  </ItemGroup>
+
+</Project>
