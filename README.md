@@ -20,6 +20,12 @@ The core idea: **agents shouldn't lose context between sessions, and they should
 - **Sharing** — cross-user object sharing with permission levels
 - **Handoffs** — structured task handoffs between agents
 - **Sessions** — session tracking and notes
+- **Nudges** — deadline reminders and actionable items with frequency control
+- **Images** — AI image generation, editing, analysis, and lifecycle management
+- **Google Docs** — Google Drive and Docs integration (create, read, update, move, delete)
+- **Save Notes** — email markdown notes from mobile or external contexts
+- **Boot** — agent bootstrap endpoint returning API URLs and always-load context
+- **Admin** — JWT-authenticated management of agents, resources, and auth
 
 ## Architecture
 
@@ -66,6 +72,12 @@ PostgreSQL with all business logic in PL/pgSQL functions under the `lucyapi` sch
 | Sharing | `POST/DELETE /sharing`, `GET /sharing/by-me`, `GET /sharing/to-me`, `GET /sharing/check` |
 | Handoffs | `GET/POST/DELETE /agents/{name}/handoffs[/{id}]`, `PUT .../pickup` |
 | Sessions | `POST /sessions`, `GET /sessions/last`, `PUT /sessions/{id}/notes` |
+| Nudges | `GET/POST/PUT/DELETE /nudges[/{id}]` |
+| Images | `POST /genimage[/edit\|/analyze]`, `GET/DELETE/PATCH /images[/{id}]` |
+| Google Docs | `POST/GET/PUT/PATCH /google/docs[/{id}]`, `GET/POST/PUT/DELETE /google/drive/files[/{id}]` |
+| Save Notes | `GET/POST /save/{token}` |
+| Boot | `GET /boot` |
+| Admin | `POST /admin/auth/*`, `GET/POST/PUT/DELETE /admin/agents[/{id}]`, `GET/PUT /admin/resources` |
 
 ## Running
 
@@ -88,7 +100,7 @@ The production binary reads its database connection string from `appsettings.jso
 ## Dependencies
 
 - [Npgsql](https://www.npgsql.org/) — PostgreSQL driver (AOT-safe slim builder)
-- [tcrypt-lib](https://github.com/RickAtSnowcap/tcrypt-lib) — AES-256-CBC encryption with TPM key delivery
+- [tcrypt-lib](https://github.com/RickAtSnowcap/tcrypt-lib) — AES-256-GCM encryption with TPM key delivery
 
 ## License
 
