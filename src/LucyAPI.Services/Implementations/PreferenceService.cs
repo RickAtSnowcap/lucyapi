@@ -7,6 +7,9 @@ namespace LucyAPI.Services.Implementations;
 
 public sealed class PreferenceService(PreferenceRepository repo) : IPreferenceService
 {
+    public Task<List<Preference>> GetAllAsync(int agentId, CancellationToken ct)
+        => repo.GetAllAsync(agentId, ct);
+
     public Task<List<PreferenceTopLevel>> GetTopLevelAsync(int agentId, CancellationToken ct)
         => repo.GetTopLevelAsync(agentId, ct);
 

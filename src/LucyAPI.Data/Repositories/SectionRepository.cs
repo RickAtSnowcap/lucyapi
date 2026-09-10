@@ -28,6 +28,27 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
+    public async Task<List<ProjectSectionCompact>> GetSectionsCompactAsync(int projectId, CancellationToken ct = default)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_get_all_compact($1)", conn)
+        {
+            Parameters = { new() { Value = projectId } }
+        };
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        var results = new List<ProjectSectionCompact>();
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new ProjectSectionCompact
+            {
+                SectionId = reader.GetInt32(0),
+                ParentId = reader.GetInt32(1),
+                Title = reader.GetString(2)
+            });
+        }
+        return results;
+    }
+
     public async Task<List<ProjectSection>> GetAsync(int projectId, int sectionId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
@@ -75,7 +96,7 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<SectionCreated?> UpdateAsync(int projectId, int sectionId, string title, string description, string? filePath, CancellationToken ct = default)
+    public async Task<SectionCreated?> UpdateAsync(int projectId, int sectionId, string? title, string? description, string? filePath, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_update($1, $2, $3, $4, $5)", conn)
@@ -84,8 +105,8 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
             {
                 new() { Value = projectId },
                 new() { Value = sectionId },
-                new() { Value = title },
-                new() { Value = description },
+                new() { Value = (object?)title ?? DBNull.Value },
+                new() { Value = (object?)description ?? DBNull.Value },
                 new() { Value = (object?)filePath ?? DBNull.Value }
             }
         };

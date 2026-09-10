@@ -6,4 +6,5 @@ public sealed class HintCreated
     public int? ParentId { get; set; }
     public int HintCategoryId { get; set; }
     public string Title { get; set; } = "";
+    public int SortOrder { get; set; }
 }

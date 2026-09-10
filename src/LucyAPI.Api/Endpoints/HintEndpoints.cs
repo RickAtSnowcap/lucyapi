@@ -28,8 +28,7 @@ public static class HintEndpoints
         {
             var caller = ctx.GetAgentContext();
             var hints = await hintService.GetAllCompactAsync(caller.UserId, ct);
-            var tree = TreeBuilder.Build(hints, h => h.Pkid, h => h.ParentId);
-            return Results.Ok(tree);
+            return Results.Ok(hints);
         });
 
         app.MapGet("/hints/{pkid:int}", async (
@@ -88,6 +87,17 @@ public static class HintEndpoints
         {
             var caller = ctx.GetAgentContext();
             var count = await hintService.DeleteAsync(pkid, ct);
+            return count > 0 ? Results.Ok(new DeleteCountResponse { DeletedCount = count }) : Results.NotFound();
+        });
+
+        app.MapDelete("/hints/categories/{pkid:int}", async (
+            int pkid,
+            HttpContext ctx,
+            IHintService hintService,
+            CancellationToken ct) =>
+        {
+            var caller = ctx.GetAgentContext();
+            var count = await hintService.DeleteCategoryAsync(pkid, ct);
             return count > 0 ? Results.Ok(new DeleteCountResponse { DeletedCount = count }) : Results.NotFound();
         });
     }

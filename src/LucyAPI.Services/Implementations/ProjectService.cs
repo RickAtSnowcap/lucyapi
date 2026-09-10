@@ -13,6 +13,9 @@ public sealed class ProjectService(ProjectRepository repo) : IProjectService
     public Task<Project?> GetAsync(int projectId, int userId, CancellationToken ct)
         => repo.GetAsync(projectId, userId, ct);
 
+    public Task<ProjectCompact?> GetCompactAsync(int projectId, int userId, CancellationToken ct)
+        => repo.GetCompactAsync(projectId, userId, ct);
+
     public Task<ProjectCreated?> CreateAsync(int userId, CreateProjectRequest request, CancellationToken ct)
         => repo.CreateAsync(userId, request.Title, request.Description, request.StatusId, ct);
 

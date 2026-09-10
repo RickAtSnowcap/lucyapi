@@ -34,15 +34,39 @@ public static class ProjectEndpoints
             HttpContext ctx,
             IProjectService projectService,
             ISectionService sectionService,
+            IConfiguration config,
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
             var project = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (project is null) return Results.NotFound();
 
+            var agentKey = ctx.Request.Headers["X-Api-Key"].FirstOrDefault()
+                           ?? ctx.Request.Query["agent_key"].FirstOrDefault();
+            if (agentKey is not null)
+            {
+                var baseUrl = config["Images:BaseUrl"] ?? "https://lucyapi.snowcapsystems.com";
+                project.DocumentUrl = $"{baseUrl}/projects/{projectId}/document?agent_key={agentKey}";
+            }
+
             var sections = await sectionService.GetSectionsAsync(projectId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
             return Results.Ok(new ProjectDetailResponse { Project = project, Sections = tree });
+        });
+
+        app.MapGet("/projects/{projectId:int}/compact", async (
+            int projectId,
+            HttpContext ctx,
+            IProjectService projectService,
+            ISectionService sectionService,
+            CancellationToken ct) =>
+        {
+            var caller = ctx.GetAgentContext();
+            var project = await projectService.GetCompactAsync(projectId, caller.UserId, ct);
+            if (project is null) return Results.NotFound();
+
+            var sections = await sectionService.GetSectionsCompactAsync(projectId, ct);
+            return Results.Ok(new ProjectCompactResponse { Project = project, Sections = sections });
         });
 
         app.MapGet("/projects/{projectId:int}/document", async (
@@ -58,7 +82,7 @@ public static class ProjectEndpoints
 
             var sections = await sectionService.GetSectionsAsync(projectId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
-            var html = HtmlDocumentRenderer.RenderProjectDocument(tree);
+            var html = HtmlDocumentRenderer.RenderProjectDocument(project, tree);
             return Results.Content(html, "text/html");
         });
 

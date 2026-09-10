@@ -11,4 +11,7 @@ public sealed class AgentService(AgentRepository repo) : IAgentService
 
     public Task<AgentRef?> GetByNameAsync(string agentName, CancellationToken ct)
         => repo.GetByNameAsync(agentName, ct);
+
+    public Task<string?> GetFirstKeyByUserIdAsync(int userId, CancellationToken ct)
+        => repo.GetFirstKeyByUserIdAsync(userId, ct);
 }

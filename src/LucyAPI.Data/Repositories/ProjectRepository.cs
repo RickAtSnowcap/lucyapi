@@ -37,6 +37,24 @@ public sealed class ProjectRepository(NpgsqlDataSource dataSource)
         return ReadProject(reader);
     }
 
+    public async Task<ProjectCompact?> GetCompactAsync(int projectId, int userId, CancellationToken ct = default)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_get_compact($1, $2)", conn)
+        {
+            Parameters = { new() { Value = projectId }, new() { Value = userId } }
+        };
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return new ProjectCompact
+        {
+            ProjectId = reader.GetInt32(0),
+            Title = reader.GetString(1),
+            Status = reader.GetString(2),
+            StatusLabel = reader.GetString(3)
+        };
+    }
+
     public async Task<ProjectCreated?> CreateAsync(int userId, string title, string description, int statusId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
@@ -61,7 +79,7 @@ public sealed class ProjectRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<ProjectCreated?> UpdateAsync(int projectId, string title, string description, int statusId, CancellationToken ct = default)
+    public async Task<ProjectCreated?> UpdateAsync(int projectId, string? title, string? description, int? statusId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_update($1, $2, $3, $4)", conn)
@@ -69,9 +87,9 @@ public sealed class ProjectRepository(NpgsqlDataSource dataSource)
             Parameters =
             {
                 new() { Value = projectId },
-                new() { Value = title },
-                new() { Value = description },
-                new() { Value = statusId }
+                new() { Value = (object?)title ?? DBNull.Value },
+                new() { Value = (object?)description ?? DBNull.Value },
+                new() { Value = (object?)statusId ?? DBNull.Value }
             }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);

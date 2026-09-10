@@ -1,0 +1,5 @@
+-- ============================================================
+-- LucyAPI Seed Data
+-- ============================================================
+-- Intentionally empty. Users, agents and their data are instance data and never belong in this repo.
+-- Reference data lives in database/seed/; the first user and agent come from database/bootstrap/first_user.sql.

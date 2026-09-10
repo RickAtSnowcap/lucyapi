@@ -23,6 +23,17 @@ public sealed class AgentRepository(NpgsqlDataSource dataSource)
         };
     }
 
+    public async Task<string?> GetFirstKeyByUserIdAsync(int userId, CancellationToken ct = default)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand("SELECT lucyapi.fn_agent_get_first_key_by_user_id($1)", conn)
+        {
+            Parameters = { new() { Value = userId } }
+        };
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return result as string;
+    }
+
     public async Task<AgentRef?> GetByNameAsync(string agentName, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);

@@ -5,6 +5,29 @@ namespace LucyAPI.Data.Repositories;
 
 public sealed class PreferenceRepository(NpgsqlDataSource dataSource)
 {
+    public async Task<List<Preference>> GetAllAsync(int agentId, CancellationToken ct = default)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_preference_get_all($1)", conn)
+        {
+            Parameters = { new() { Value = agentId } }
+        };
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        var results = new List<Preference>();
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new Preference
+            {
+                Pkid = reader.GetInt32(0),
+                ParentId = reader.GetInt32(1),
+                Title = reader.GetString(2),
+                Description = reader.IsDBNull(3) ? null : reader.GetString(3),
+                IsChild = reader.GetInt32(1) != 0
+            });
+        }
+        return results;
+    }
+
     public async Task<List<PreferenceTopLevel>> GetTopLevelAsync(int agentId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
@@ -70,7 +93,7 @@ public sealed class PreferenceRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<MutationResult?> UpdateAsync(int agentId, int pkid, string title, string description, CancellationToken ct = default)
+    public async Task<MutationResult?> UpdateAsync(int agentId, int pkid, string? title, string? description, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_preference_update($1, $2, $3, $4)", conn)
@@ -79,8 +102,8 @@ public sealed class PreferenceRepository(NpgsqlDataSource dataSource)
             {
                 new() { Value = agentId },
                 new() { Value = pkid },
-                new() { Value = title },
-                new() { Value = description }
+                new() { Value = (object?)title ?? DBNull.Value },
+                new() { Value = (object?)description ?? DBNull.Value }
             }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);

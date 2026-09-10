@@ -1,6 +1,9 @@
 using System.Text.Json;
 using LucyAPI.Api;
+using LucyAPI.Api.Auth;
 using LucyAPI.Api.Endpoints;
+using LucyAPI.Api.Endpoints.Admin;
+using LucyAPI.Api.Mcp;
 using LucyAPI.Api.Middleware;
 using LucyAPI.Data.Repositories;
 using LucyAPI.Services.Implementations;
@@ -47,6 +50,10 @@ builder.Services.AddSingleton<ContextRepository>();
 builder.Services.AddSingleton<HintRepository>();
 builder.Services.AddSingleton<SecretRepository>();
 builder.Services.AddSingleton<ShareRepository>();
+builder.Services.AddSingleton<ImageRepository>();
+builder.Services.AddSingleton<UserRepository>();
+builder.Services.AddSingleton<AdminRepository>();
+builder.Services.AddSingleton<NudgeRepository>();
 
 // --- Services ---
 builder.Services.AddSingleton<IAgentService, AgentService>();
@@ -62,8 +69,46 @@ builder.Services.AddSingleton<IHandoffService, HandoffService>();
 builder.Services.AddSingleton<ISessionService, SessionService>();
 builder.Services.AddSingleton<IContextService, ContextService>();
 builder.Services.AddSingleton<IHintService, HintService>();
-builder.Services.AddSingleton<ISecretService, SecretService>();
+// SecretService registered below after encryptionKey is resolved
 builder.Services.AddSingleton<IShareService, ShareService>();
+builder.Services.AddSingleton<IUserService, UserService>();
+builder.Services.AddSingleton<INudgeService, NudgeService>();
+
+// --- JWT Auth ---
+var jwtSigningKey = builder.Configuration["Jwt:SigningKey"]
+    ?? Environment.GetEnvironmentVariable("LUCYAPI_JWT_SECRET")
+    ?? throw new InvalidOperationException("JWT signing key not configured (set Jwt:SigningKey or LUCYAPI_JWT_SECRET)");
+builder.Services.AddSingleton(new JwtTokenService(jwtSigningKey));
+
+// --- Phase 5: Google Docs, Images, Save Notes ---
+var encryptionKey = builder.Environment.IsDevelopment()
+    ? Convert.FromBase64String(Environment.GetEnvironmentVariable("LUCYAPI_ENCRYPTION_KEY") ?? "")
+    : SuitcaseCrypt.LoadKey();
+
+builder.Services.AddSingleton<ISecretService>(sp =>
+    new SecretService(sp.GetRequiredService<SecretRepository>(), encryptionKey));
+
+builder.Services.AddSingleton<IGoogleDocsService>(sp =>
+    new GoogleDocsService(sp.GetRequiredService<ISecretService>()));
+
+var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
+builder.Services.AddSingleton<IGeminiService>(new GeminiService(geminiApiKey));
+
+var imagesDir = builder.Configuration["Images:Directory"] ?? "/opt/lucyapi/output/images";
+var baseUrl = builder.Configuration["Images:BaseUrl"] ?? "https://lucyapi.snowcapsystems.com";
+builder.Services.AddSingleton<IImageService>(sp =>
+    new ImageService(sp.GetRequiredService<ImageRepository>(), sp.GetRequiredService<IGeminiService>(),
+        imagesDir, baseUrl));
+
+builder.Services.AddSingleton<ISaveNotesService>(new SaveNotesService(
+    smtpHost: builder.Configuration["SmtpHost"] ?? "smtp.forwardemail.net",
+    smtpPort: int.TryParse(builder.Configuration["SmtpPort"], out var port) ? port : 465,
+    smtpUser: builder.Configuration["SmtpUser"] ?? "rick@snowcapsystems.com",
+    smtpPass: Environment.GetEnvironmentVariable("LUCYAPI_SMTP_PASS") ?? "",
+    sendTo: builder.Configuration["SmtpSendTo"] ?? "rick@snowcapsystems.com"));
+
+// --- Phase 6: MCP Server ---
+builder.Services.AddSingleton<McpToolDispatcher>();
 
 // --- JSON (AOT source-generated, snake_case) ---
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -87,11 +132,13 @@ var app = builder.Build();
 
 // --- Middleware ---
 app.UseCors();
+app.UseMiddleware<JwtAuthMiddleware>();
 app.UseMiddleware<ApiKeyAuthMiddleware>();
 
 // --- Endpoints ---
 app.MapHealthEndpoints();
 app.MapTimeEndpoints();
+app.MapBootEndpoints();
 app.MapContextEndpoints();
 app.MapAlwaysLoadEndpoints();
 app.MapMemoryEndpoints();
@@ -106,5 +153,15 @@ app.MapWikiTagEndpoints();
 app.MapHintEndpoints();
 app.MapSecretEndpoints();
 app.MapShareEndpoints();
+app.MapGoogleDocsEndpoints();
+app.MapImageEndpoints();
+app.MapSaveEndpoints();
+app.MapNudgeEndpoints();
+app.MapMcpEndpoints();
+
+// --- Admin Endpoints (JWT-scoped) ---
+app.MapAdminAuthEndpoints();
+app.MapAdminAgentsEndpoints();
+app.MapAdminResourcesEndpoints();
 
 app.Run();

@@ -6,8 +6,11 @@ namespace LucyAPI.Api.Middleware;
 
 public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
 {
-    // Paths that don't require authentication
+    // Paths that don't require authentication (exact match)
     private static readonly string[] PublicPaths = ["/health", "/time"];
+
+    // Paths that bypass auth (prefix match — MCP and admin/auth use their own auth)
+    private static readonly string[] PublicPrefixes = ["/mcp", "/admin/", "/auth/"];
 
     public async Task InvokeAsync(HttpContext ctx, IAgentService agentService)
     {
@@ -16,6 +19,15 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         foreach (var pub in PublicPaths)
         {
             if (path.Equals(pub, StringComparison.OrdinalIgnoreCase))
+            {
+                await next(ctx);
+                return;
+            }
+        }
+
+        foreach (var prefix in PublicPrefixes)
+        {
+            if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
                 await next(ctx);
                 return;

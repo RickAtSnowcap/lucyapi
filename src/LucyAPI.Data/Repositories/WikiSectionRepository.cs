@@ -77,7 +77,7 @@ public sealed class WikiSectionRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<WikiSectionCreated?> UpdateAsync(int wikiId, int sectionId, string title, string description, string[]? tags, CancellationToken ct = default)
+    public async Task<WikiSectionCreated?> UpdateAsync(int wikiId, int sectionId, string? title, string? description, string[]? tags, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_update($1, $2, $3, $4, $5)", conn)
@@ -86,8 +86,8 @@ public sealed class WikiSectionRepository(NpgsqlDataSource dataSource)
             {
                 new() { Value = wikiId },
                 new() { Value = sectionId },
-                new() { Value = title },
-                new() { Value = description },
+                new() { Value = (object?)title ?? DBNull.Value },
+                new() { Value = (object?)description ?? DBNull.Value },
                 new() { Value = (object?)tags ?? DBNull.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text }
             }
         };

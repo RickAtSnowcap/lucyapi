@@ -1,0 +1,1562 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using LucyAPI.Data.Models;
+using LucyAPI.Services.DTOs;
+using LucyAPI.Services.Interfaces;
+using LucyAPI.Services.Utilities;
+
+namespace LucyAPI.Api.Mcp;
+
+public sealed class McpToolDispatcher(
+    IAgentService agentService,
+    IAlwaysLoadService alwaysLoadService,
+    IMemoryService memoryService,
+    IPreferenceService preferenceService,
+    IProjectService projectService,
+    ISectionService sectionService,
+    IWikiService wikiService,
+    IWikiSectionService wikiSectionService,
+    IWikiTagService wikiTagService,
+    IHandoffService handoffService,
+    ISessionService sessionService,
+    IContextService contextService,
+    IHintService hintService,
+    ISecretService secretService,
+    INudgeService nudgeService,
+    IShareService shareService,
+    IGoogleDocsService googleDocsService,
+    IImageService imageService,
+    ISaveNotesService saveNotesService,
+    IConfiguration configuration)
+{
+    private static readonly JsonSerializerOptions s_snakeCase = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        TypeInfoResolver = AppJsonSerializerContext.Default
+    };
+
+    private string? _toolListCache;
+
+    // ---------------------------------------------------------------
+    //  Tool list (cached JSON for tools/list response)
+    // ---------------------------------------------------------------
+    public string GetToolListJson()
+    {
+        return _toolListCache ??= BuildToolListJson();
+    }
+
+    // ---------------------------------------------------------------
+    //  Dispatch
+    // ---------------------------------------------------------------
+    public async Task<string> DispatchAsync(string toolName, JsonElement args, CancellationToken ct)
+    {
+        // Auth: extract agent_key, resolve caller
+        var agentKey = GetString(args, "agent_key");
+        if (string.IsNullOrEmpty(agentKey))
+            return Error("agent_key is required for authentication");
+
+        var caller = await agentService.GetByApiKeyAsync(agentKey, ct);
+        if (caller is null)
+            return Error("Invalid agent_key — agent not found");
+
+        return toolName switch
+        {
+            // --- System ---
+            "get_time" => HandleGetTime(),
+
+            // --- Context ---
+            "get_context" => await HandleGetContext(caller, args, ct),
+            "get_always_load" => await HandleGetAlwaysLoad(caller, args, ct),
+            "get_always_load_item" => await HandleGetAlwaysLoadItem(caller, args, ct),
+            "create_always_load" => await HandleCreateAlwaysLoad(caller, args, ct),
+            "update_always_load" => await HandleUpdateAlwaysLoad(caller, args, ct),
+            "delete_always_load" => await HandleDeleteAlwaysLoad(caller, args, ct),
+
+            // --- Memories ---
+            "get_memories" => await HandleGetMemories(caller, args, ct),
+            "get_memory" => await HandleGetMemory(caller, args, ct),
+            "create_memory" => await HandleCreateMemory(caller, args, ct),
+            "update_memory" => await HandleUpdateMemory(caller, args, ct),
+            "delete_memory" => await HandleDeleteMemory(caller, args, ct),
+
+            // --- Preferences ---
+            "get_preferences" => await HandleGetPreferences(caller, args, ct),
+            "get_preference" => await HandleGetPreference(caller, args, ct),
+            "create_preference" => await HandleCreatePreference(caller, args, ct),
+            "update_preference" => await HandleUpdatePreference(caller, args, ct),
+            "delete_preference" => await HandleDeletePreference(caller, args, ct),
+
+            // --- Projects ---
+            "get_project_statuses" => await HandleGetProjectStatuses(ct),
+            "get_projects" => await HandleGetProjects(caller, args, ct),
+            "get_project" => await HandleGetProject(caller, args, ct),
+            "get_project_compact" => await HandleGetProjectCompact(caller, args, ct),
+            "get_section" => await HandleGetSection(caller, args, ct),
+            "create_project" => await HandleCreateProject(caller, args, ct),
+            "create_section" => await HandleCreateSection(caller, args, ct),
+            "update_project" => await HandleUpdateProject(caller, args, ct),
+            "update_section" => await HandleUpdateSection(caller, args, ct),
+            "delete_project" => await HandleDeleteProject(caller, args, ct),
+            "delete_section" => await HandleDeleteSection(caller, args, ct),
+
+            // --- Hints ---
+            "get_hints" => await HandleGetHints(caller, ct),
+            "get_hints_compact" => await HandleGetHintsCompact(caller, ct),
+            "get_hint" => await HandleGetHint(args, ct),
+            "create_hint_category" => await HandleCreateHintCategory(caller, args, ct),
+            "create_hint" => await HandleCreateHint(caller, args, ct),
+            "update_hint" => await HandleUpdateHint(args, ct),
+            "delete_hint" => await HandleDeleteHint(args, ct),
+            "delete_hint_category" => await HandleDeleteHintCategory(args, ct),
+
+            // --- Wikis ---
+            "get_wikis" => await HandleGetWikis(caller, ct),
+            "get_wiki" => await HandleGetWiki(caller, args, ct),
+            "create_wiki" => await HandleCreateWiki(caller, args, ct),
+            "update_wiki" => await HandleUpdateWiki(args, ct),
+            "delete_wiki" => await HandleDeleteWiki(args, ct),
+            "create_wiki_section" => await HandleCreateWikiSection(args, ct),
+            "get_wiki_section" => await HandleGetWikiSection(args, ct),
+            "update_wiki_section" => await HandleUpdateWikiSection(args, ct),
+            "delete_wiki_section" => await HandleDeleteWikiSection(args, ct),
+            "get_wiki_tags" => await HandleGetWikiTags(args, ct),
+            "search_wiki_tag" => await HandleSearchWikiTag(caller, args, ct),
+
+            // --- Sharing ---
+            "share_object" => await HandleShareObject(caller, args, ct),
+            "revoke_share" => await HandleRevokeShare(caller, args, ct),
+            "get_shared_by_me" => await HandleGetSharedByMe(caller, ct),
+            "get_shared_to_me" => await HandleGetSharedToMe(caller, ct),
+
+            // --- Sessions ---
+            "create_session" => await HandleCreateSession(caller, args, ct),
+            "get_last_session" => await HandleGetLastSession(caller, ct),
+
+            // --- Save Notes ---
+            "save_notes" => HandleSaveNotes(args),
+
+            // --- Secrets ---
+            "list_secrets" => await HandleListSecrets(caller, ct),
+            "get_secret" => await HandleGetSecret(caller, args, ct),
+            "set_secret" => await HandleSetSecret(caller, args, ct),
+            "delete_secret" => await HandleDeleteSecret(caller, args, ct),
+
+            // --- Nudges ---
+            "get_nudges" => await HandleGetNudges(caller, ct),
+            "get_nudge" => await HandleGetNudge(caller, args, ct),
+            "create_nudge" => await HandleCreateNudge(caller, args, ct),
+            "update_nudge" => await HandleUpdateNudge(caller, args, ct),
+            "delete_nudge" => await HandleDeleteNudge(caller, args, ct),
+
+            // --- Handoffs ---
+            "list_handoffs" => await HandleListHandoffs(caller, args, ct),
+            "get_handoff" => await HandleGetHandoff(caller, args, ct),
+            "create_handoff" => await HandleCreateHandoff(caller, args, ct),
+            "pickup_handoff" => await HandlePickupHandoff(caller, args, ct),
+            "delete_handoff" => await HandleDeleteHandoff(caller, args, ct),
+
+            // --- Images ---
+            "generate_image" => await HandleGenerateImage(caller, args, ct),
+            "edit_image" => await HandleEditImage(caller, args, ct),
+            "analyze_image" => await HandleAnalyzeImage(args, ct),
+            "list_images" => await HandleListImages(caller, args, ct),
+            "keep_image" => await HandleKeepImage(args, ct),
+            "delete_image" => await HandleDeleteImage(args, ct),
+            "cleanup_images" => await HandleCleanupImages(caller, ct),
+
+            // --- Google Docs ---
+            "create_google_doc" => await HandleCreateGoogleDoc(caller, args, ct),
+            "read_google_doc" => await HandleReadGoogleDoc(caller, args, ct),
+            "update_google_doc" => await HandleUpdateGoogleDoc(caller, args, ct),
+            "append_google_doc" => await HandleAppendGoogleDoc(caller, args, ct),
+
+            // --- Google Drive ---
+            "list_google_files" => await HandleListGoogleFiles(caller, args, ct),
+            "create_google_folder" => await HandleCreateGoogleFolder(caller, args, ct),
+            "move_google_file" => await HandleMoveGoogleFile(caller, args, ct),
+            "delete_google_file" => await HandleDeleteGoogleFile(caller, args, ct),
+            "get_google_file_meta" => await HandleGetGoogleFileMeta(caller, args, ct),
+
+            _ => Error("Unknown tool: " + toolName)
+        };
+    }
+
+    // ===============================================================
+    //  HANDLERS: System
+    // ===============================================================
+
+    private static string HandleGetTime()
+    {
+        var utcNow = DateTimeOffset.UtcNow;
+        var mountainZone = TimeZoneInfo.FindSystemTimeZoneById("America/Denver");
+        var mountainNow = TimeZoneInfo.ConvertTime(utcNow, mountainZone);
+        var tz = mountainZone.IsDaylightSavingTime(mountainNow) ? "MDT" : "MST";
+        var dow = mountainNow.DayOfWeek.ToString();
+        return "{\"utc_time\":\"" + utcNow.ToString("yyyy-MM-dd HH:mm:ss") +
+               "\",\"mountain_time\":\"" + mountainNow.ToString("yyyy-MM-dd HH:mm:ss") +
+               "\",\"timezone\":\"" + tz +
+               "\",\"day_of_week\":\"" + dow + "\"}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Context & Always-Load
+    // ===============================================================
+
+    private async Task<string> HandleGetContext(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var doc = await contextService.GetFullAsync(agentId, caller.UserId, ct);
+        if (doc is null) return "{}";
+        return doc.RootElement.GetRawText();
+    }
+
+    private async Task<string> HandleGetAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var (agentId, agentName) = await ResolveAgent(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var items = await alwaysLoadService.GetAllAsync(agentId, ct);
+        var tree = TreeBuilder.Build(items, i => i.Pkid, i => i.ParentId);
+        var treeJson = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeAlwaysLoadItem);
+        return "{\"agent\":\"" + Esc(agentName) + "\",\"always_load\":" + treeJson + "}";
+    }
+
+    private async Task<string> HandleGetAlwaysLoadItem(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var pkid = GetInt(args, "pkid");
+        var items = await alwaysLoadService.GetItemAsync(agentId, pkid, ct);
+        if (items.Count == 0) return Error("Not found");
+        var tree = TreeBuilder.Build(items, i => i.Pkid, i => i.ParentId, items[0].ParentId);
+        var treeJson = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeAlwaysLoadItem);
+        return treeJson.Length > 2 ? treeJson[1..^1] : "null"; // unwrap array to single node
+    }
+
+    private async Task<string> HandleCreateAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var req = new CreateAlwaysLoadRequest
+        {
+            ParentId = GetInt(args, "parent_id", 0),
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? ""
+        };
+        var result = await alwaysLoadService.CreateAsync(agentId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.AlwaysLoadCreated);
+    }
+
+    private async Task<string> HandleUpdateAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var req = new UpdateAlwaysLoadRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description")
+        };
+        var result = await alwaysLoadService.UpdateAsync(agentId, GetInt(args, "pkid"), req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.MutationResult);
+    }
+
+    private async Task<string> HandleDeleteAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var count = await alwaysLoadService.DeleteAsync(agentId, GetInt(args, "pkid"), ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Memories
+    // ===============================================================
+
+    private async Task<string> HandleGetMemories(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var (agentId, agentName) = await ResolveAgent(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var items = await memoryService.GetAllAsync(agentId, ct);
+        var json = Serialize(items, AppJsonSerializerContext.Default.ListMemory);
+        return "{\"agent\":\"" + Esc(agentName) + "\",\"memories\":" + json + "}";
+    }
+
+    private async Task<string> HandleGetMemory(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var item = await memoryService.GetOneAsync(agentId, GetInt(args, "pkid"), ct);
+        return item is null ? Error("Not found") : Serialize(item, AppJsonSerializerContext.Default.Memory);
+    }
+
+    private async Task<string> HandleCreateMemory(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var req = new CreateMemoryRequest
+        {
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? ""
+        };
+        var result = await memoryService.CreateAsync(agentId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.MemoryCreated);
+    }
+
+    private async Task<string> HandleUpdateMemory(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var req = new UpdateMemoryRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description")
+        };
+        var result = await memoryService.UpdateAsync(agentId, GetInt(args, "pkid"), req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.MutationResult);
+    }
+
+    private async Task<string> HandleDeleteMemory(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var count = await memoryService.DeleteAsync(agentId, GetInt(args, "pkid"), ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Preferences
+    // ===============================================================
+
+    private async Task<string> HandleGetPreferences(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var (agentId, agentName) = await ResolveAgent(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var items = await preferenceService.GetTopLevelAsync(agentId, ct);
+        var json = Serialize(items, AppJsonSerializerContext.Default.ListPreferenceTopLevel);
+        return "{\"agent\":\"" + Esc(agentName) + "\",\"preferences\":" + json + "}";
+    }
+
+    private async Task<string> HandleGetPreference(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var items = await preferenceService.GetBranchAsync(agentId, GetInt(args, "pkid"), ct);
+        var tree = TreeBuilder.Build(items, i => i.Pkid, i => i.ParentId, items.Count > 0 ? items[0].ParentId : 0);
+        var treeJson = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodePreference);
+        return treeJson.Length > 2 ? treeJson[1..^1] : "null";
+    }
+
+    private async Task<string> HandleCreatePreference(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var req = new CreatePreferenceRequest
+        {
+            ParentId = GetInt(args, "parent_id", 0),
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? ""
+        };
+        var result = await preferenceService.CreateAsync(agentId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.MutationResult);
+    }
+
+    private async Task<string> HandleUpdatePreference(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var req = new UpdatePreferenceRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description")
+        };
+        var result = await preferenceService.UpdateAsync(agentId, GetInt(args, "pkid"), req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.MutationResult);
+    }
+
+    private async Task<string> HandleDeletePreference(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var count = await preferenceService.DeleteAsync(agentId, GetInt(args, "pkid"), ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Projects
+    // ===============================================================
+
+    private async Task<string> HandleGetProjectStatuses(CancellationToken ct)
+    {
+        var items = await projectService.GetStatusesAsync(ct);
+        var json = Serialize(items, AppJsonSerializerContext.Default.ListProjectStatus);
+        return "{\"statuses\":" + json + "}";
+    }
+
+    private async Task<string> HandleGetProjects(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var status = GetString(args, "status");
+        var items = await projectService.GetAllAsync(caller.UserId, status, ct);
+        var json = Serialize(items, AppJsonSerializerContext.Default.ListProject);
+        return "{\"projects\":" + json + "}";
+    }
+
+    private async Task<string> HandleGetProject(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var projectId = GetInt(args, "project_id");
+        var project = await projectService.GetAsync(projectId, caller.UserId, ct);
+        if (project is null) return Error("Project not found");
+
+        var agentKey = GetString(args, "agent_key");
+        if (!string.IsNullOrEmpty(agentKey))
+        {
+            var baseUrl = configuration["Images:BaseUrl"] ?? "https://lucyapi.snowcapsystems.com";
+            project.DocumentUrl = $"{baseUrl}/projects/{projectId}/document?agent_key={agentKey}";
+        }
+
+        var sections = await sectionService.GetSectionsAsync(projectId, ct);
+        var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
+        var pJson = Serialize(project, AppJsonSerializerContext.Default.Project);
+        var sJson = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeProjectSection);
+        return "{\"project\":" + pJson + ",\"sections\":" + sJson + "}";
+    }
+
+    private async Task<string> HandleGetProjectCompact(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var projectId = GetInt(args, "project_id");
+        var project = await projectService.GetCompactAsync(projectId, caller.UserId, ct);
+        if (project is null) return Error("Project not found");
+
+        var sections = await sectionService.GetSectionsCompactAsync(projectId, ct);
+        var pJson = Serialize(project, AppJsonSerializerContext.Default.ProjectCompact);
+        var sJson = Serialize(sections, AppJsonSerializerContext.Default.ListProjectSectionCompact);
+        return "{\"project\":" + pJson + ",\"sections\":" + sJson + "}";
+    }
+
+    private async Task<string> HandleGetSection(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var projectId = GetInt(args, "project_id");
+        var sectionId = GetInt(args, "section_id");
+        var items = await sectionService.GetAsync(projectId, sectionId, ct);
+        if (items.Count == 0) return Error("Section not found");
+        var tree = TreeBuilder.Build(items, s => s.SectionId, s => s.ParentId, items[0].ParentId);
+        var json = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeProjectSection);
+        return json.Length > 2 ? json[1..^1] : "null";
+    }
+
+    private async Task<string> HandleCreateProject(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new CreateProjectRequest
+        {
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? "",
+            StatusId = GetInt(args, "status_id", 1)
+        };
+        var result = await projectService.CreateAsync(caller.UserId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.ProjectCreated);
+    }
+
+    private async Task<string> HandleCreateSection(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var projectId = GetInt(args, "project_id");
+        var req = new CreateSectionRequest
+        {
+            ParentId = GetInt(args, "parent_id", 0),
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? "",
+            FilePath = GetString(args, "file_path")
+        };
+        var result = await sectionService.CreateAsync(projectId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.SectionCreated);
+    }
+
+    private async Task<string> HandleUpdateProject(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var projectId = GetInt(args, "project_id");
+        var req = new UpdateProjectRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description"),
+            StatusId = GetNullableInt(args, "status_id")
+        };
+        var result = await projectService.UpdateAsync(projectId, req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.ProjectCreated);
+    }
+
+    private async Task<string> HandleUpdateSection(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var projectId = GetInt(args, "project_id");
+        var sectionId = GetInt(args, "section_id");
+        var req = new UpdateSectionRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description"),
+            FilePath = GetString(args, "file_path")
+        };
+        var result = await sectionService.UpdateAsync(projectId, sectionId, req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.SectionCreated);
+    }
+
+    private async Task<string> HandleDeleteProject(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var count = await projectService.DeleteAsync(GetInt(args, "project_id"), ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    private async Task<string> HandleDeleteSection(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var count = await sectionService.DeleteAsync(GetInt(args, "project_id"), GetInt(args, "section_id"), ct);
+        return "{\"sections_deleted\":" + count + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Hints
+    // ===============================================================
+
+    private async Task<string> HandleGetHints(Agent caller, CancellationToken ct)
+    {
+        var items = await hintService.GetAllAsync(caller.UserId, ct);
+        var tree = TreeBuilder.Build(items, h => h.Pkid, h => h.ParentId);
+        return "{\"hints\":" + Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeHint) + "}";
+    }
+
+    private async Task<string> HandleGetHintsCompact(Agent caller, CancellationToken ct)
+    {
+        var items = await hintService.GetAllCompactAsync(caller.UserId, ct);
+        var tree = TreeBuilder.Build(items, h => h.Pkid, h => h.ParentId);
+        return "{\"hints\":" + Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeHintCompact) + "}";
+    }
+
+    private async Task<string> HandleGetHint(JsonElement args, CancellationToken ct)
+    {
+        var hintId = GetInt(args, "hint_id");
+        var items = await hintService.GetAsync(hintId, ct);
+        if (items.Count == 0) return Error("Hint not found");
+        var tree = TreeBuilder.Build(items, h => h.Pkid, h => h.ParentId, items[0].ParentId);
+        var json = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeHint);
+        return json.Length > 2 ? json[1..^1] : "null";
+    }
+
+    private async Task<string> HandleCreateHintCategory(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new CreateHintCategoryRequest
+        {
+            ParentId = GetInt(args, "parent_id", 0),
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? ""
+        };
+        var result = await hintService.CreateCategoryAsync(caller.UserId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.HintCreated);
+    }
+
+    private async Task<string> HandleDeleteHintCategory(JsonElement args, CancellationToken ct)
+    {
+        var pkid = GetInt(args, "hint_id");
+        var count = await hintService.DeleteCategoryAsync(pkid, ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    private async Task<string> HandleCreateHint(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new CreateHintRequest
+        {
+            ParentId = GetInt(args, "parent_id", 0),
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? ""
+        };
+        var result = await hintService.CreateAsync(caller.UserId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.HintCreated);
+    }
+
+    private async Task<string> HandleUpdateHint(JsonElement args, CancellationToken ct)
+    {
+        var hintId = GetInt(args, "hint_id");
+        var req = new UpdateHintRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description")
+        };
+        var result = await hintService.UpdateAsync(hintId, req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.MutationResult);
+    }
+
+    private async Task<string> HandleDeleteHint(JsonElement args, CancellationToken ct)
+    {
+        var count = await hintService.DeleteAsync(GetInt(args, "hint_id"), ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Wikis
+    // ===============================================================
+
+    private async Task<string> HandleGetWikis(Agent caller, CancellationToken ct)
+    {
+        var items = await wikiService.GetAllAsync(caller.UserId, ct);
+        return "{\"wikis\":" + Serialize(items, AppJsonSerializerContext.Default.ListWiki) + "}";
+    }
+
+    private async Task<string> HandleGetWiki(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var wikiId = GetInt(args, "wiki_id");
+        var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
+        if (wiki is null) return Error("Wiki not found");
+        var sections = await wikiSectionService.GetSectionsAsync(wikiId, ct);
+        var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
+        return "{\"wiki\":" + Serialize(wiki, AppJsonSerializerContext.Default.Wiki) +
+               ",\"sections\":" + Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeWikiSection) + "}";
+    }
+
+    private async Task<string> HandleCreateWiki(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new CreateWikiRequest
+        {
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? ""
+        };
+        var result = await wikiService.CreateAsync(caller.UserId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.WikiCreated);
+    }
+
+    private async Task<string> HandleUpdateWiki(JsonElement args, CancellationToken ct)
+    {
+        var wikiId = GetInt(args, "wiki_id");
+        var req = new UpdateWikiRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description")
+        };
+        var result = await wikiService.UpdateAsync(wikiId, req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.WikiCreated);
+    }
+
+    private async Task<string> HandleDeleteWiki(JsonElement args, CancellationToken ct)
+    {
+        var count = await wikiService.DeleteAsync(GetInt(args, "wiki_id"), ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    private async Task<string> HandleCreateWikiSection(JsonElement args, CancellationToken ct)
+    {
+        var wikiId = GetInt(args, "wiki_id");
+        var req = new CreateWikiSectionRequest
+        {
+            ParentId = GetInt(args, "parent_id", 0),
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? "",
+            Tags = GetStringArray(args, "tags")
+        };
+        var result = await wikiSectionService.CreateAsync(wikiId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.WikiSectionCreated);
+    }
+
+    private async Task<string> HandleGetWikiSection(JsonElement args, CancellationToken ct)
+    {
+        var wikiId = GetInt(args, "wiki_id");
+        var sectionId = GetInt(args, "section_id");
+        var items = await wikiSectionService.GetAsync(wikiId, sectionId, ct);
+        if (items.Count == 0) return Error("Section not found");
+        var tree = TreeBuilder.Build(items, s => s.SectionId, s => s.ParentId, items[0].ParentId);
+        var json = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeWikiSection);
+        return json.Length > 2 ? json[1..^1] : "null";
+    }
+
+    private async Task<string> HandleUpdateWikiSection(JsonElement args, CancellationToken ct)
+    {
+        var wikiId = GetInt(args, "wiki_id");
+        var sectionId = GetInt(args, "section_id");
+        var req = new UpdateWikiSectionRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description"),
+            Tags = GetStringArray(args, "tags")
+        };
+        var result = await wikiSectionService.UpdateAsync(wikiId, sectionId, req, ct);
+        return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.WikiSectionCreated);
+    }
+
+    private async Task<string> HandleDeleteWikiSection(JsonElement args, CancellationToken ct)
+    {
+        var wikiId = GetInt(args, "wiki_id");
+        var sectionId = GetInt(args, "section_id");
+        var count = await wikiSectionService.DeleteAsync(wikiId, sectionId, ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    private async Task<string> HandleGetWikiTags(JsonElement args, CancellationToken ct)
+    {
+        var wikiId = GetInt(args, "wiki_id");
+        var tags = await wikiTagService.GetTagsAsync(wikiId, ct);
+        var json = Serialize(tags, AppJsonSerializerContext.Default.ListString);
+        return "{\"wiki_id\":" + wikiId + ",\"tags\":" + json + "}";
+    }
+
+    private async Task<string> HandleSearchWikiTag(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var tag = GetString(args, "tag") ?? "";
+        var results = await wikiTagService.SearchAsync(tag, caller.UserId, ct);
+        var json = Serialize(results, AppJsonSerializerContext.Default.ListWikiTagSearchResult);
+        return "{\"tag\":\"" + Esc(tag) + "\",\"results\":" + json + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Sharing
+    // ===============================================================
+
+    private async Task<string> HandleShareObject(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new ShareObjectRequest
+        {
+            SharedToUserId = GetInt(args, "shared_to_user_id"),
+            ObjectTypeId = GetInt(args, "object_type_id"),
+            ObjectId = GetInt(args, "object_id"),
+            PermissionLevel = GetInt(args, "permission_level", 1)
+        };
+        var result = await shareService.ShareAsync(caller.UserId, req, ct);
+        return result is null ? Error("Share failed") : Serialize(result, AppJsonSerializerContext.Default.ShareCreated);
+    }
+
+    private async Task<string> HandleRevokeShare(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var shareId = GetInt(args, "share_id");
+        var ok = await shareService.RevokeAsync(caller.UserId, shareId, ct);
+        return ok ? "{\"revoked\":" + shareId + "}" : Error("Share not found or not owned by you");
+    }
+
+    private async Task<string> HandleGetSharedByMe(Agent caller, CancellationToken ct)
+    {
+        var items = await shareService.GetSharedByMeAsync(caller.UserId, ct);
+        return "{\"shared\":" + Serialize(items, AppJsonSerializerContext.Default.ListShareRecord) + "}";
+    }
+
+    private async Task<string> HandleGetSharedToMe(Agent caller, CancellationToken ct)
+    {
+        var items = await shareService.GetSharedToMeAsync(caller.UserId, ct);
+        return "{\"shared\":" + Serialize(items, AppJsonSerializerContext.Default.ListShareRecord) + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Sessions
+    // ===============================================================
+
+    private async Task<string> HandleCreateSession(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new CreateSessionRequest { Project = GetString(args, "project") };
+        var result = await sessionService.CreateAsync(caller.AgentId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.SessionCreated);
+    }
+
+    private async Task<string> HandleGetLastSession(Agent caller, CancellationToken ct)
+    {
+        var session = await sessionService.GetLastAsync(caller.AgentId, ct);
+        return session is null ? "{}" : Serialize(session, AppJsonSerializerContext.Default.Session);
+    }
+
+    // ===============================================================
+    //  HANDLERS: Save Notes
+    // ===============================================================
+
+    private string HandleSaveNotes(JsonElement args)
+    {
+        var subject = GetString(args, "subject") ?? "";
+        var content = GetString(args, "content") ?? "";
+        var result = saveNotesService.SaveAndEmail(subject, content);
+        return Serialize(result, AppJsonSerializerContext.Default.SaveNotesResponse);
+    }
+
+    // ===============================================================
+    //  HANDLERS: Secrets
+    // ===============================================================
+
+    // ===============================================================
+    //  HANDLERS: Nudges
+    // ===============================================================
+
+    private async Task<string> HandleGetNudges(Agent caller, CancellationToken ct)
+    {
+        var nudges = await nudgeService.GetAllAsync(caller.UserId, ct);
+        return "{\"nudges\":" + Serialize(nudges, AppJsonSerializerContext.Default.ListNudge) + "}";
+    }
+
+    private async Task<string> HandleGetNudge(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var nudge = await nudgeService.GetOneAsync(caller.UserId, GetInt(args, "nudge_id"), ct);
+        return nudge is null ? Error("Nudge not found") : Serialize(nudge, AppJsonSerializerContext.Default.Nudge);
+    }
+
+    private async Task<string> HandleCreateNudge(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var dueDateStr = GetString(args, "due_date");
+        DateOnly? dueDate = !string.IsNullOrEmpty(dueDateStr) && DateOnly.TryParse(dueDateStr, out var d) ? d : null;
+        var req = new CreateNudgeRequest
+        {
+            Title = GetString(args, "title") ?? "",
+            Description = GetString(args, "description") ?? "",
+            DueDate = dueDate
+        };
+        var result = await nudgeService.CreateAsync(caller.UserId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.NudgeCreated);
+    }
+
+    private async Task<string> HandleUpdateNudge(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var dueDateStr = GetString(args, "due_date");
+        DateOnly? dueDate = !string.IsNullOrEmpty(dueDateStr) && DateOnly.TryParse(dueDateStr, out var d) ? d : null;
+        var req = new UpdateNudgeRequest
+        {
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description"),
+            DueDate = dueDate,
+            ClearDueDate = GetBool(args, "clear_due_date")
+        };
+        var result = await nudgeService.UpdateAsync(caller.UserId, GetInt(args, "nudge_id"), req, ct);
+        return result is null ? Error("Nudge not found") : Serialize(result, AppJsonSerializerContext.Default.MutationResult);
+    }
+
+    private async Task<string> HandleDeleteNudge(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var count = await nudgeService.DeleteAsync(caller.UserId, GetInt(args, "nudge_id"), ct);
+        return count == 0 ? Error("Nudge not found") : "{\"deleted_count\":" + count + "}";
+    }
+
+    private async Task<string> HandleListSecrets(Agent caller, CancellationToken ct)
+    {
+        var keys = await secretService.ListKeysAsync(caller.UserId, ct);
+        return "{\"keys\":" + Serialize(keys, AppJsonSerializerContext.Default.ListString) + "}";
+    }
+
+    private async Task<string> HandleGetSecret(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var key = GetString(args, "key") ?? "";
+        var secret = await secretService.GetAsync(caller.UserId, key, ct);
+        return secret is null ? Error("Secret not found") : Serialize(secret, AppJsonSerializerContext.Default.Secret);
+    }
+
+    private async Task<string> HandleSetSecret(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var key = GetString(args, "key") ?? "";
+        var req = new SetSecretRequest { Value = GetString(args, "value") ?? "" };
+        var ok = await secretService.SetAsync(caller.UserId, key, req, ct);
+        return ok ? "{\"key\":\"" + Esc(key) + "\",\"status\":\"saved\"}" : Error("Failed to set secret");
+    }
+
+    private async Task<string> HandleDeleteSecret(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var key = GetString(args, "key") ?? "";
+        var ok = await secretService.DeleteAsync(caller.UserId, key, ct);
+        return ok ? "{\"key\":\"" + Esc(key) + "\",\"status\":\"deleted\"}" : Error("Secret not found");
+    }
+
+    // ===============================================================
+    //  HANDLERS: Handoffs
+    // ===============================================================
+
+    private async Task<string> HandleListHandoffs(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var items = await handoffService.ListPendingAsync(agentId, ct);
+        return "{\"handoffs\":" + Serialize(items, AppJsonSerializerContext.Default.ListHandoff) + "}";
+    }
+
+    private async Task<string> HandleGetHandoff(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var item = await handoffService.GetAsync(agentId, GetInt(args, "handoff_id"), ct);
+        return item is null ? Error("Handoff not found") : Serialize(item, AppJsonSerializerContext.Default.Handoff);
+    }
+
+    private async Task<string> HandleCreateHandoff(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var req = new CreateHandoffRequest
+        {
+            Title = GetString(args, "title") ?? "",
+            Prompt = GetString(args, "prompt") ?? ""
+        };
+        var result = await handoffService.CreateAsync(agentId, req, ct);
+        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.HandoffCreated);
+    }
+
+    private async Task<string> HandlePickupHandoff(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var result = await handoffService.PickupAsync(agentId, GetInt(args, "handoff_id"), ct);
+        return result is null ? Error("Handoff not found or already picked up") : Serialize(result, AppJsonSerializerContext.Default.HandoffPickedUp);
+    }
+
+    private async Task<string> HandleDeleteHandoff(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = await ResolveAgentId(caller, args, ct);
+        if (agentId < 0) return Error("Agent not found");
+        var count = await handoffService.DeleteAsync(agentId, GetInt(args, "handoff_id"), ct);
+        return "{\"deleted_count\":" + count + "}";
+    }
+
+    // ===============================================================
+    //  HANDLERS: Images
+    // ===============================================================
+
+    private async Task<string> HandleGenerateImage(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new GenImageRequest
+        {
+            Prompt = GetString(args, "prompt") ?? "",
+            Model = GetString(args, "model") ?? "nano-banana",
+            AspectRatio = GetString(args, "aspect_ratio") ?? "1:1"
+        };
+        var result = await imageService.GenerateAsync(caller.UserId, req, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
+    }
+
+    private async Task<string> HandleEditImage(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var req = new EditImageRequest
+        {
+            Prompt = GetString(args, "prompt") ?? "",
+            ImageId = GetNullableInt(args, "image_id"),
+            ImageUrl = GetString(args, "image_url"),
+            Model = GetString(args, "model") ?? "nano-banana"
+        };
+        var result = await imageService.EditAsync(caller.UserId, req, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
+    }
+
+    private async Task<string> HandleAnalyzeImage(JsonElement args, CancellationToken ct)
+    {
+        var req = new AnalyzeImageRequest
+        {
+            ImageId = GetNullableInt(args, "image_id"),
+            ImageUrl = GetString(args, "image_url"),
+            Prompt = GetString(args, "prompt") ?? "Describe this image in detail"
+        };
+        var result = await imageService.AnalyzeAsync(req, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.AnalyzeImageResponse);
+    }
+
+    private async Task<string> HandleListImages(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        bool? keep = null;
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("keep", out var keepProp) && keepProp.ValueKind != JsonValueKind.Null)
+            keep = keepProp.GetBoolean();
+        var limit = GetInt(args, "limit", 50);
+        var items = await imageService.ListAsync(caller.UserId, keep, limit, 0, ct);
+        return "{\"images\":" + Serialize(items, AppJsonSerializerContext.Default.ListImageResponse) + "}";
+    }
+
+    private async Task<string> HandleKeepImage(JsonElement args, CancellationToken ct)
+    {
+        var imageId = GetInt(args, "image_id");
+        var result = await imageService.UpdateKeepAsync(imageId, true, ct);
+        return result is null ? Error("Image not found") : Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
+    }
+
+    private async Task<string> HandleDeleteImage(JsonElement args, CancellationToken ct)
+    {
+        var imageId = GetInt(args, "image_id");
+        var force = GetBool(args, "force", false);
+        var result = await imageService.DeleteAsync(imageId, force, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.ImageDeleteResponse);
+    }
+
+    private async Task<string> HandleCleanupImages(Agent caller, CancellationToken ct)
+    {
+        var result = await imageService.CleanupAsync(caller.UserId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.ImageCleanupResponse);
+    }
+
+    // ===============================================================
+    //  HANDLERS: Google Docs
+    // ===============================================================
+
+    private async Task<string> HandleCreateGoogleDoc(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var title = GetString(args, "title") ?? "";
+        var body = GetString(args, "body");
+        var result = await googleDocsService.CreateDocumentAsync(caller.UserId, title, body, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DocResponse);
+    }
+
+    private async Task<string> HandleReadGoogleDoc(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var docId = GetString(args, "doc_id") ?? "";
+        var result = await googleDocsService.ReadDocumentAsync(caller.UserId, docId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DocResponse);
+    }
+
+    private async Task<string> HandleUpdateGoogleDoc(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var docId = GetString(args, "doc_id") ?? "";
+        var content = GetString(args, "content") ?? "";
+        var result = await googleDocsService.UpdateDocumentAsync(caller.UserId, docId, content, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DocResponse);
+    }
+
+    private async Task<string> HandleAppendGoogleDoc(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var docId = GetString(args, "doc_id") ?? "";
+        var content = GetString(args, "content") ?? "";
+        var result = await googleDocsService.AppendToDocumentAsync(caller.UserId, docId, content, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DocResponse);
+    }
+
+    // ===============================================================
+    //  HANDLERS: Google Drive
+    // ===============================================================
+
+    private async Task<string> HandleListGoogleFiles(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var folderId = GetString(args, "folder_id");
+        var result = await googleDocsService.ListFilesAsync(caller.UserId, folderId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DriveFileListResponse);
+    }
+
+    private async Task<string> HandleCreateGoogleFolder(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var name = GetString(args, "name") ?? "";
+        var parentId = GetString(args, "parent_folder_id");
+        var result = await googleDocsService.CreateFolderAsync(caller.UserId, name, parentId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.FolderResponse);
+    }
+
+    private async Task<string> HandleMoveGoogleFile(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var fileId = GetString(args, "file_id") ?? "";
+        var targetFolderId = GetString(args, "target_folder_id") ?? "";
+        var result = await googleDocsService.MoveFileAsync(caller.UserId, fileId, targetFolderId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.MoveFileResponse);
+    }
+
+    private async Task<string> HandleDeleteGoogleFile(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var fileId = GetString(args, "file_id") ?? "";
+        var result = await googleDocsService.DeleteFileAsync(caller.UserId, fileId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DeleteFileResponse);
+    }
+
+    private async Task<string> HandleGetGoogleFileMeta(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var fileId = GetString(args, "file_id") ?? "";
+        var result = await googleDocsService.GetFileMetadataAsync(caller.UserId, fileId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DriveFileInfo);
+    }
+
+    // ===============================================================
+    //  Helpers: Agent Resolution
+    // ===============================================================
+
+    private async Task<int> ResolveAgentId(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentName = GetString(args, "agent_name");
+        if (string.IsNullOrEmpty(agentName)) return caller.AgentId;
+        var target = await agentService.GetByNameAsync(agentName, ct);
+        if (target is null || target.UserId != caller.UserId) return -1;
+        return target.AgentId;
+    }
+
+    private async Task<(int AgentId, string AgentName)> ResolveAgent(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentName = GetString(args, "agent_name");
+        if (string.IsNullOrEmpty(agentName)) return (caller.AgentId, caller.AgentName);
+        var target = await agentService.GetByNameAsync(agentName, ct);
+        if (target is null || target.UserId != caller.UserId) return (-1, "");
+        return (target.AgentId, agentName);
+    }
+
+    // ===============================================================
+    //  Helpers: JSON argument extraction
+    // ===============================================================
+
+    private static string? GetString(JsonElement args, string key)
+    {
+        if (args.ValueKind != JsonValueKind.Object) return null;
+        return args.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.String
+            ? prop.GetString() : null;
+    }
+
+    private static int GetInt(JsonElement args, string key, int defaultValue = 0)
+    {
+        if (args.ValueKind != JsonValueKind.Object) return defaultValue;
+        if (!args.TryGetProperty(key, out var prop)) return defaultValue;
+        return prop.ValueKind == JsonValueKind.Number ? prop.GetInt32() : defaultValue;
+    }
+
+    private static int? GetNullableInt(JsonElement args, string key)
+    {
+        if (args.ValueKind != JsonValueKind.Object) return null;
+        if (!args.TryGetProperty(key, out var prop)) return null;
+        return prop.ValueKind == JsonValueKind.Number ? prop.GetInt32() : null;
+    }
+
+    private static bool GetBool(JsonElement args, string key, bool defaultValue = false)
+    {
+        if (args.ValueKind != JsonValueKind.Object) return defaultValue;
+        if (!args.TryGetProperty(key, out var prop)) return defaultValue;
+        return prop.ValueKind is JsonValueKind.True or JsonValueKind.False ? prop.GetBoolean() : defaultValue;
+    }
+
+    private static string[]? GetStringArray(JsonElement args, string key)
+    {
+        if (args.ValueKind != JsonValueKind.Object) return null;
+        if (!args.TryGetProperty(key, out var prop) || prop.ValueKind != JsonValueKind.Array) return null;
+        var list = new List<string>();
+        foreach (var item in prop.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+                list.Add(item.GetString()!);
+        }
+        return list.ToArray();
+    }
+
+    // ===============================================================
+    //  Helpers: Serialization
+    // ===============================================================
+
+    private static string Serialize<T>(T value, JsonTypeInfo<T> typeInfo)
+    {
+        return JsonSerializer.Serialize(value, typeInfo);
+    }
+
+    private static string Error(string message)
+    {
+        return "{\"error\":\"" + Esc(message) + "\"}";
+    }
+
+    private static string Esc(string s) => McpEndpoints.EscapeJsonString(s);
+
+    // ===============================================================
+    //  Tool Definitions (82 tools)
+    // ===============================================================
+
+    private static string BuildToolListJson()
+    {
+        // Reusable schema fragments
+        const string _K = "\"agent_key\":{\"type\":\"string\",\"description\":\"Your agent API key for authentication\"}";
+        const string _A = "\"agent_name\":{\"type\":\"string\",\"description\":\"Agent name (e.g. 'my-agent')\"}";
+        const string _ID = "\"pkid\":{\"type\":\"integer\",\"description\":\"Node/item ID\"}";
+        const string _T = "\"title\":{\"type\":\"string\",\"description\":\"Title\"}";
+        const string _D = "\"description\":{\"type\":\"string\",\"description\":\"Description\"}";
+        const string _PAR = "\"parent_id\":{\"type\":\"integer\",\"description\":\"Parent node ID (0 for root)\"}";
+        const string _PJ = "\"project_id\":{\"type\":\"integer\",\"description\":\"Project ID\"}";
+        const string _SC = "\"section_id\":{\"type\":\"integer\",\"description\":\"Section ID\"}";
+        const string _FP = "\"file_path\":{\"type\":\"string\",\"description\":\"Associated file path\"}";
+        const string _WK = "\"wiki_id\":{\"type\":\"integer\",\"description\":\"Wiki ID\"}";
+        const string _TAGS = "\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Tags for the section\"}";
+        const string _HID = "\"hint_id\":{\"type\":\"integer\",\"description\":\"Hint ID\"}";
+        const string _SID = "\"share_id\":{\"type\":\"integer\",\"description\":\"Share ID\"}";
+        const string _HOID = "\"handoff_id\":{\"type\":\"integer\",\"description\":\"Handoff ID\"}";
+
+        var sb = new StringBuilder(16384);
+        sb.Append("{\"tools\":[");
+        var first = true;
+
+        void Tool(string name, string desc, string propsJson, string reqJson)
+        {
+            if (!first) sb.Append(',');
+            first = false;
+            sb.Append("{\"name\":\"").Append(name)
+              .Append("\",\"description\":\"").Append(Esc(desc))
+              .Append("\",\"inputSchema\":{\"type\":\"object\",\"properties\":{")
+              .Append(_K);
+            if (propsJson.Length > 0) sb.Append(',').Append(propsJson);
+            sb.Append("},\"required\":[\"agent_key\"");
+            if (reqJson.Length > 0) sb.Append(',').Append(reqJson);
+            sb.Append("]}}");
+        }
+
+        // --- System ---
+        Tool("get_time",
+            "Get current UTC and Mountain Time timestamps, timezone, and day of week.",
+            "", "");
+
+        // --- Context ---
+        Tool("get_context",
+            "One-stop-shop agent startup context: time, always_load titles, memory titles, preferences manifest, project manifest, hints compact, and actionable nudges.",
+            _A, "\"agent_name\"");
+
+        Tool("get_always_load",
+            "Full always-load tree with descriptions.",
+            _A, "\"agent_name\"");
+
+        Tool("get_always_load_item",
+            "Single always-load node and its children.",
+            $"{_A},{_ID}", "\"agent_name\",\"pkid\"");
+
+        Tool("create_always_load",
+            "Create an always_load node.",
+            $"{_A},{_T},{_D},{_PAR}", "\"agent_name\",\"title\"");
+
+        Tool("update_always_load",
+            "Update an always_load node.",
+            $"{_A},{_ID},{_T},{_D}", "\"agent_name\",\"pkid\"");
+
+        Tool("delete_always_load",
+            "Delete an always_load node and children.",
+            $"{_A},{_ID}", "\"agent_name\",\"pkid\"");
+
+        // --- Memories ---
+        Tool("get_memories",
+            "All memories with full descriptions.",
+            _A, "\"agent_name\"");
+
+        Tool("get_memory",
+            "Single memory by ID.",
+            $"{_A},{_ID}", "\"agent_name\",\"pkid\"");
+
+        Tool("create_memory",
+            "Create a new memory.",
+            $"{_A},{_T},{_D}", "\"agent_name\",\"title\"");
+
+        Tool("update_memory",
+            "Update a memory.",
+            $"{_A},{_ID},{_T},{_D}", "\"agent_name\",\"pkid\"");
+
+        Tool("delete_memory",
+            "Delete a memory.",
+            $"{_A},{_ID}", "\"agent_name\",\"pkid\"");
+
+        // --- Preferences ---
+        Tool("get_preferences",
+            "Top-level preference categories.",
+            _A, "\"agent_name\"");
+
+        Tool("get_preference",
+            "Preference node and its children.",
+            $"{_A},{_ID}", "\"agent_name\",\"pkid\"");
+
+        Tool("create_preference",
+            "Create a preference node.",
+            $"{_A},{_T},{_D},{_PAR}", "\"agent_name\",\"title\"");
+
+        Tool("update_preference",
+            "Update a preference node.",
+            $"{_A},{_ID},{_T},{_D}", "\"agent_name\",\"pkid\"");
+
+        Tool("delete_preference",
+            "Delete a preference node and children.",
+            $"{_A},{_ID}", "\"agent_name\",\"pkid\"");
+
+        // --- Projects ---
+        Tool("get_project_statuses",
+            "List all project status options.",
+            "", "");
+
+        Tool("get_projects",
+            "All projects for the user.",
+            "\"status\":{\"type\":\"string\",\"description\":\"Filter by status code (planning, active, on_hold, evolving, complete, archived)\"}", "");
+
+        Tool("get_project",
+            "Project header with section tree.",
+            _PJ, "\"project_id\"");
+
+        Tool("get_project_compact",
+            "Project header and section tree with titles only — no descriptions. Use to browse a project's structure before loading specific sections via get_section.",
+            _PJ, "\"project_id\"");
+
+        Tool("get_section",
+            "Project section and its children.",
+            $"{_PJ},{_SC}", "\"project_id\",\"section_id\"");
+
+        Tool("create_project",
+            "Create a new project.",
+            $"{_T},{_D},\"status_id\":{{\"type\":\"integer\",\"description\":\"Status ID (default: 1=planning)\"}}", "\"title\"");
+
+        Tool("create_section",
+            "Create a section under a project.",
+            $"{_PJ},{_T},{_D},{_PAR},{_FP}", "\"project_id\",\"title\"");
+
+        Tool("update_project",
+            "Update a project.",
+            $"{_PJ},{_T},{_D},\"status_id\":{{\"type\":\"integer\",\"description\":\"Status ID for lifecycle transitions\"}}", "\"project_id\"");
+
+        Tool("update_section",
+            "Update a project section.",
+            $"{_PJ},{_SC},{_T},{_D},{_FP}", "\"project_id\",\"section_id\"");
+
+        Tool("delete_project",
+            "Delete a project and all sections.",
+            _PJ, "\"project_id\"");
+
+        Tool("delete_section",
+            "Delete a section and descendants.",
+            $"{_PJ},{_SC}", "\"project_id\",\"section_id\"");
+
+        // --- Hints ---
+        Tool("get_hints",
+            "Full hints tree with descriptions.",
+            "", "");
+
+        Tool("get_hints_compact",
+            "Flat hint list with titles only — no descriptions. For quick category/hint discovery.",
+            "", "");
+
+        Tool("get_hint",
+            "Hint node and its children.",
+            _HID, "\"hint_id\"");
+
+        Tool("create_hint_category",
+            "Create a hint category. Omit parent_id (or pass 0) for a root category; pass parent_id to nest under an existing category.",
+            $"{_PAR},{_T},{_D}", "\"title\"");
+
+        Tool("create_hint",
+            "Create a hint node.",
+            $"{_T},{_D},{_PAR}", "\"title\"");
+
+        Tool("update_hint",
+            "Update a hint node.",
+            $"{_HID},{_T},{_D}", "\"hint_id\"");
+
+        Tool("delete_hint",
+            "Delete a hint node and children.",
+            _HID, "\"hint_id\"");
+
+        Tool("delete_hint_category",
+            "Delete a hint category. Fails if the category has any children — delete children first.",
+            _HID, "\"hint_id\"");
+
+        // --- Wikis ---
+        Tool("get_wikis",
+            "All wikis for the user.",
+            "", "");
+
+        Tool("get_wiki",
+            "Wiki header with section tree (includes tags and updated_at).",
+            _WK, "\"wiki_id\"");
+
+        Tool("create_wiki",
+            "Create a new wiki.",
+            $"{_T},{_D}", "\"title\"");
+
+        Tool("update_wiki",
+            "Update a wiki.",
+            $"{_WK},{_T},{_D}", "\"wiki_id\"");
+
+        Tool("delete_wiki",
+            "Delete a wiki and all sections/tags.",
+            _WK, "\"wiki_id\"");
+
+        Tool("create_wiki_section",
+            "Create a section under a wiki.",
+            $"{_WK},{_T},{_D},{_PAR},{_TAGS}", "\"wiki_id\",\"title\"");
+
+        Tool("get_wiki_section",
+            "Wiki section with children and tags.",
+            $"{_WK},{_SC}", "\"wiki_id\",\"section_id\"");
+
+        Tool("update_wiki_section",
+            "Update a wiki section (including tags).",
+            $"{_WK},{_SC},{_T},{_D},{_TAGS}", "\"wiki_id\",\"section_id\"");
+
+        Tool("delete_wiki_section",
+            "Delete a wiki section and descendants.",
+            $"{_WK},{_SC}", "\"wiki_id\",\"section_id\"");
+
+        Tool("get_wiki_tags",
+            "List all unique tags in a wiki.",
+            _WK, "\"wiki_id\"");
+
+        Tool("search_wiki_tag",
+            "Find all sections across wikis matching a tag.",
+            "\"tag\":{\"type\":\"string\",\"description\":\"Tag to search for\"}", "\"tag\"");
+
+        // --- Sharing ---
+        Tool("share_object",
+            "Share a project, hint category, or wiki with another user.",
+            "\"shared_to_user_id\":{\"type\":\"integer\",\"description\":\"User ID to share with\"}," +
+            "\"object_type_id\":{\"type\":\"integer\",\"description\":\"1=project, 2=hint, 3=wiki\"}," +
+            "\"object_id\":{\"type\":\"integer\",\"description\":\"ID of the object to share\"}," +
+            "\"permission_level\":{\"type\":\"integer\",\"description\":\"1=read, 2=read+edit, 3=full control\"}",
+            "\"shared_to_user_id\",\"object_type_id\",\"object_id\"");
+
+        Tool("revoke_share",
+            "Revoke a previously shared object.",
+            _SID, "\"share_id\"");
+
+        Tool("get_shared_by_me",
+            "List all objects you have shared with other users.",
+            "", "");
+
+        Tool("get_shared_to_me",
+            "List all objects other users have shared with you.",
+            "", "");
+
+        // --- Sessions ---
+        Tool("create_session",
+            "Log a session start.",
+            "\"project\":{\"type\":\"string\",\"description\":\"Optional project context\"}", "");
+
+        Tool("get_last_session",
+            "Most recent session for the calling agent.",
+            "", "");
+
+        // --- Save Notes ---
+        Tool("save_notes",
+            "Email markdown content as an attachment to Rick.",
+            "\"subject\":{\"type\":\"string\",\"description\":\"Email subject\"}," +
+            "\"content\":{\"type\":\"string\",\"description\":\"Markdown content\"}",
+            "\"subject\",\"content\"");
+
+        // --- Nudges ---
+        const string _NID = "\"nudge_id\":{\"type\":\"integer\",\"description\":\"Nudge ID\"}";
+
+        Tool("get_nudges",
+            "List all nudges for the current user.",
+            "", "");
+
+        Tool("get_nudge",
+            "Get a single nudge by ID.",
+            _NID, "\"nudge_id\"");
+
+        Tool("create_nudge",
+            "Create a new nudge (deadline reminder). Set due_date to a date string (YYYY-MM-DD) or omit for ASAP.",
+            $"{_T},{_D},\"due_date\":{{\"type\":\"string\",\"description\":\"Due date (YYYY-MM-DD) or omit for ASAP\"}}",
+            "\"title\"");
+
+        Tool("update_nudge",
+            "Update a nudge. Set clear_due_date=true to change to ASAP.",
+            $"{_NID},{_T},{_D},\"due_date\":{{\"type\":\"string\",\"description\":\"Due date (YYYY-MM-DD)\"}},\"clear_due_date\":{{\"type\":\"boolean\",\"description\":\"Set true to clear due date (makes it ASAP)\"}}",
+            "\"nudge_id\"");
+
+        Tool("delete_nudge",
+            "Delete a nudge.",
+            _NID, "\"nudge_id\"");
+
+        // --- Secrets ---
+        Tool("list_secrets",
+            "List all secret key names (no values).",
+            "", "");
+
+        Tool("get_secret",
+            "Get decrypted secret value.",
+            "\"key\":{\"type\":\"string\",\"description\":\"Secret key name\"}", "\"key\"");
+
+        Tool("set_secret",
+            "Create or update an encrypted secret.",
+            "\"key\":{\"type\":\"string\",\"description\":\"Secret key name\"}," +
+            "\"value\":{\"type\":\"string\",\"description\":\"Secret value (will be encrypted)\"}",
+            "\"key\",\"value\"");
+
+        Tool("delete_secret",
+            "Delete a secret.",
+            "\"key\":{\"type\":\"string\",\"description\":\"Secret key name\"}", "\"key\"");
+
+        // --- Handoffs ---
+        Tool("list_handoffs",
+            "List pending handoffs for an agent.",
+            _A, "\"agent_name\"");
+
+        Tool("get_handoff",
+            "Get a specific handoff.",
+            $"{_A},{_HOID}", "\"agent_name\",\"handoff_id\"");
+
+        Tool("create_handoff",
+            "Create a handoff prompt for an agent (cross-agent OK).",
+            $"{_A},{_T},\"prompt\":{{\"type\":\"string\",\"description\":\"Handoff prompt text\"}}",
+            "\"agent_name\",\"title\",\"prompt\"");
+
+        Tool("pickup_handoff",
+            "Mark a handoff as picked up (named agent only).",
+            $"{_A},{_HOID}", "\"agent_name\",\"handoff_id\"");
+
+        Tool("delete_handoff",
+            "Delete a handoff (named agent only).",
+            $"{_A},{_HOID}", "\"agent_name\",\"handoff_id\"");
+
+        // --- Images ---
+        Tool("generate_image",
+            "Generate an image from a text prompt via Gemini.",
+            "\"prompt\":{\"type\":\"string\",\"description\":\"Text prompt for image generation\"}," +
+            "\"model\":{\"type\":\"string\",\"description\":\"Model alias (nano-banana or nano-banana-pro)\"}," +
+            "\"aspect_ratio\":{\"type\":\"string\",\"description\":\"Aspect ratio (1:1, 16:9, etc.)\"}",
+            "\"prompt\"");
+
+        Tool("edit_image",
+            "Edit an existing image with a text prompt via Gemini.",
+            "\"prompt\":{\"type\":\"string\",\"description\":\"Edit instruction\"}," +
+            "\"image_id\":{\"type\":\"integer\",\"description\":\"Source image ID (provide this or image_url)\"}," +
+            "\"image_url\":{\"type\":\"string\",\"description\":\"Source image URL (provide this or image_id)\"}," +
+            "\"model\":{\"type\":\"string\",\"description\":\"Model alias\"}",
+            "\"prompt\"");
+
+        Tool("analyze_image",
+            "Analyze an image and return a text description via Gemini.",
+            "\"image_id\":{\"type\":\"integer\",\"description\":\"Image ID (provide this or image_url)\"}," +
+            "\"image_url\":{\"type\":\"string\",\"description\":\"Image URL (provide this or image_id)\"}," +
+            "\"prompt\":{\"type\":\"string\",\"description\":\"Analysis prompt\"}",
+            "");
+
+        Tool("list_images",
+            "List generated images with optional keep filter.",
+            "\"keep\":{\"type\":\"boolean\",\"description\":\"Filter by keep flag\"}," +
+            "\"limit\":{\"type\":\"integer\",\"description\":\"Max results (default 50)\"}",
+            "");
+
+        Tool("keep_image",
+            "Mark an image as keep=true to protect from cleanup.",
+            "\"image_id\":{\"type\":\"integer\",\"description\":\"Image ID to keep\"}", "\"image_id\"");
+
+        Tool("delete_image",
+            "Delete an image file and DB row.",
+            "\"image_id\":{\"type\":\"integer\",\"description\":\"Image ID to delete\"}," +
+            "\"force\":{\"type\":\"boolean\",\"description\":\"Force delete even if keep=true\"}",
+            "\"image_id\"");
+
+        Tool("cleanup_images",
+            "Bulk delete all images where keep=false.",
+            "", "");
+
+        // --- Google Docs ---
+        Tool("create_google_doc",
+            "Create a new Google Doc in the shared Drive folder.",
+            "\"title\":{\"type\":\"string\",\"description\":\"Document title\"}," +
+            "\"body\":{\"type\":\"string\",\"description\":\"Plain text body content\"}",
+            "\"title\"");
+
+        Tool("read_google_doc",
+            "Read a Google Doc and return its plain text content.",
+            "\"doc_id\":{\"type\":\"string\",\"description\":\"Google Doc document ID\"}", "\"doc_id\"");
+
+        Tool("update_google_doc",
+            "Replace a document's content with new text.",
+            "\"doc_id\":{\"type\":\"string\",\"description\":\"Google Doc document ID\"}," +
+            "\"content\":{\"type\":\"string\",\"description\":\"Replacement text content\"}",
+            "\"doc_id\",\"content\"");
+
+        Tool("append_google_doc",
+            "Append text content to an existing document.",
+            "\"doc_id\":{\"type\":\"string\",\"description\":\"Google Doc document ID\"}," +
+            "\"content\":{\"type\":\"string\",\"description\":\"Text content to append\"}",
+            "\"doc_id\",\"content\"");
+
+        // --- Google Drive ---
+        Tool("list_google_files",
+            "List files in the shared Drive folder or a subfolder.",
+            "\"folder_id\":{\"type\":\"string\",\"description\":\"Subfolder ID (defaults to root shared folder)\"}", "");
+
+        Tool("create_google_folder",
+            "Create a subfolder in the shared Drive folder.",
+            "\"name\":{\"type\":\"string\",\"description\":\"Folder name\"}," +
+            "\"parent_folder_id\":{\"type\":\"string\",\"description\":\"Parent folder ID\"}",
+            "\"name\"");
+
+        Tool("move_google_file",
+            "Move a file to a different folder.",
+            "\"file_id\":{\"type\":\"string\",\"description\":\"File ID to move\"}," +
+            "\"target_folder_id\":{\"type\":\"string\",\"description\":\"Destination folder ID\"}",
+            "\"file_id\",\"target_folder_id\"");
+
+        Tool("delete_google_file",
+            "Move a file to trash.",
+            "\"file_id\":{\"type\":\"string\",\"description\":\"File ID to delete\"}", "\"file_id\"");
+
+        Tool("get_google_file_meta",
+            "Get file metadata (title, type, dates, URL).",
+            "\"file_id\":{\"type\":\"string\",\"description\":\"File ID\"}", "\"file_id\"");
+
+        sb.Append("]}");
+        return sb.ToString();
+    }
+}

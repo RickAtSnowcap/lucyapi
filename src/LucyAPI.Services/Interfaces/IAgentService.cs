@@ -6,4 +6,5 @@ public interface IAgentService
 {
     Task<Agent?> GetByApiKeyAsync(string apiKey, CancellationToken ct = default);
     Task<AgentRef?> GetByNameAsync(string agentName, CancellationToken ct = default);
+    Task<string?> GetFirstKeyByUserIdAsync(int userId, CancellationToken ct = default);
 }

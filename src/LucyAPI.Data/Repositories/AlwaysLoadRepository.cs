@@ -73,7 +73,7 @@ public sealed class AlwaysLoadRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<MutationResult?> UpdateAsync(int agentId, int pkid, string title, string description, CancellationToken ct = default)
+    public async Task<MutationResult?> UpdateAsync(int agentId, int pkid, string? title, string? description, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_always_load_update($1, $2, $3, $4)", conn)
@@ -82,8 +82,8 @@ public sealed class AlwaysLoadRepository(NpgsqlDataSource dataSource)
             {
                 new() { Value = agentId },
                 new() { Value = pkid },
-                new() { Value = title },
-                new() { Value = description }
+                new() { Value = (object?)title ?? DBNull.Value },
+                new() { Value = (object?)description ?? DBNull.Value }
             }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);

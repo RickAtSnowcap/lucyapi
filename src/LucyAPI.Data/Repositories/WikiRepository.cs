@@ -54,7 +54,7 @@ public sealed class WikiRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<WikiCreated?> UpdateAsync(int wikiId, string title, string description, CancellationToken ct = default)
+    public async Task<WikiCreated?> UpdateAsync(int wikiId, string? title, string? description, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_update($1, $2, $3)", conn)
@@ -62,8 +62,8 @@ public sealed class WikiRepository(NpgsqlDataSource dataSource)
             Parameters =
             {
                 new() { Value = wikiId },
-                new() { Value = title },
-                new() { Value = description }
+                new() { Value = (object?)title ?? DBNull.Value },
+                new() { Value = (object?)description ?? DBNull.Value }
             }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);

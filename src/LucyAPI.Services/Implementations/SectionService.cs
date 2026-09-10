@@ -10,6 +10,9 @@ public sealed class SectionService(SectionRepository repo) : ISectionService
     public Task<List<ProjectSection>> GetSectionsAsync(int projectId, CancellationToken ct)
         => repo.GetSectionsAsync(projectId, ct);
 
+    public Task<List<ProjectSectionCompact>> GetSectionsCompactAsync(int projectId, CancellationToken ct)
+        => repo.GetSectionsCompactAsync(projectId, ct);
+
     public Task<List<ProjectSection>> GetAsync(int projectId, int sectionId, CancellationToken ct)
         => repo.GetAsync(projectId, sectionId, ct);
 

@@ -9,4 +9,5 @@ public sealed class Project
     public string StatusLabel { get; set; } = "";
     public string Access { get; set; } = "";
     public int PermissionLevel { get; set; }
+    public string? DocumentUrl { get; set; }
 }

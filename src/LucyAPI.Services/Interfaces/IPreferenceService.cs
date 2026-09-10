@@ -5,6 +5,7 @@ namespace LucyAPI.Services.Interfaces;
 
 public interface IPreferenceService
 {
+    Task<List<Preference>> GetAllAsync(int agentId, CancellationToken ct = default);
     Task<List<PreferenceTopLevel>> GetTopLevelAsync(int agentId, CancellationToken ct = default);
     Task<List<Preference>> GetBranchAsync(int agentId, int pkid, CancellationToken ct = default);
     Task<MutationResult?> CreateAsync(int agentId, CreatePreferenceRequest request, CancellationToken ct = default);

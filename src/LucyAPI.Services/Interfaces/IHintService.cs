@@ -12,4 +12,5 @@ public interface IHintService
     Task<HintCreated?> CreateAsync(int userId, CreateHintRequest request, CancellationToken ct = default);
     Task<MutationResult?> UpdateAsync(int pkid, UpdateHintRequest request, CancellationToken ct = default);
     Task<int> DeleteAsync(int pkid, CancellationToken ct = default);
+    Task<int> DeleteCategoryAsync(int pkid, CancellationToken ct = default);
 }
