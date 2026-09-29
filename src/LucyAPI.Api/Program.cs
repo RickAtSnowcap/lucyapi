@@ -116,7 +116,7 @@ builder.Services.AddSingleton(new DocumentLinkSigner(documentLinkKey, baseUrl));
 
 builder.Services.AddSingleton<ISaveNotesService>(new SaveNotesService(
     smtpHost: builder.Configuration["SmtpHost"] ?? "smtp.forwardemail.net",
-    smtpPort: int.TryParse(builder.Configuration["SmtpPort"], out var port) ? port : 465,
+    smtpPort: int.TryParse(builder.Configuration["SmtpPort"], out var port) ? port : 587,   // STARTTLS — System.Net.Mail can't do implicit TLS on 465
     smtpUser: builder.Configuration["SmtpUser"] ?? "rick@snowcapsystems.com",
     smtpPass: SealedSetting("SmtpPassword", "LUCYAPI_SMTP_PASS"),
     sendTo: builder.Configuration["SmtpSendTo"] ?? "rick@snowcapsystems.com"));
