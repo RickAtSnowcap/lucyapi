@@ -17,7 +17,7 @@ public static class HandoffEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var handoffs = await handoffService.ListPendingAsync(target.AgentId, ct);
@@ -33,7 +33,7 @@ public static class HandoffEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var handoff = await handoffService.GetAsync(target.AgentId, handoffId, ct);
@@ -49,7 +49,7 @@ public static class HandoffEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await handoffService.CreateAsync(target.AgentId, request, ct);
@@ -65,7 +65,7 @@ public static class HandoffEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await handoffService.PickupAsync(target.AgentId, handoffId, ct);
@@ -81,7 +81,7 @@ public static class HandoffEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var count = await handoffService.DeleteAsync(target.AgentId, handoffId, ct);

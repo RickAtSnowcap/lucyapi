@@ -17,7 +17,7 @@ public static class MemoryEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var memories = await memoryService.GetAllAsync(target.AgentId, ct);
@@ -33,7 +33,7 @@ public static class MemoryEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var memory = await memoryService.GetOneAsync(target.AgentId, pkid, ct);
@@ -49,7 +49,7 @@ public static class MemoryEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await memoryService.CreateAsync(target.AgentId, request, ct);
@@ -66,7 +66,7 @@ public static class MemoryEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await memoryService.UpdateAsync(target.AgentId, pkid, request, ct);
@@ -82,7 +82,7 @@ public static class MemoryEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var count = await memoryService.DeleteAsync(target.AgentId, pkid, ct);

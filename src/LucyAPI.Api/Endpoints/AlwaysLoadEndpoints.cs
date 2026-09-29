@@ -18,7 +18,7 @@ public static class AlwaysLoadEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var items = await alwaysLoadService.GetAllAsync(target.AgentId, ct);
@@ -35,7 +35,7 @@ public static class AlwaysLoadEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var items = await alwaysLoadService.GetItemAsync(target.AgentId, pkid, ct);
@@ -54,7 +54,7 @@ public static class AlwaysLoadEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await alwaysLoadService.CreateAsync(target.AgentId, request, ct);
@@ -71,7 +71,7 @@ public static class AlwaysLoadEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await alwaysLoadService.UpdateAsync(target.AgentId, pkid, request, ct);
@@ -87,7 +87,7 @@ public static class AlwaysLoadEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var count = await alwaysLoadService.DeleteAsync(target.AgentId, pkid, ct);

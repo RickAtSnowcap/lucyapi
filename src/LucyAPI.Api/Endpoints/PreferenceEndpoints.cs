@@ -17,7 +17,7 @@ public static class PreferenceEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var preferences = await preferenceService.GetTopLevelAsync(target.AgentId, ct);
@@ -33,7 +33,7 @@ public static class PreferenceEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var items = await preferenceService.GetBranchAsync(target.AgentId, pkid, ct);
@@ -52,7 +52,7 @@ public static class PreferenceEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await preferenceService.CreateAsync(target.AgentId, request, ct);
@@ -69,7 +69,7 @@ public static class PreferenceEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var result = await preferenceService.UpdateAsync(target.AgentId, pkid, request, ct);
@@ -85,7 +85,7 @@ public static class PreferenceEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var count = await preferenceService.DeleteAsync(target.AgentId, pkid, ct);

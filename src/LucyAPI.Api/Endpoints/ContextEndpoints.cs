@@ -15,7 +15,7 @@ public static class ContextEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var target = await agentService.GetByNameAsync(agentName, ct);
+            var target = await agentService.GetSameUserAgentAsync(caller, agentName, ct);
             if (target is null) return Results.NotFound();
 
             var context = await contextService.GetFullAsync(target.AgentId, target.UserId, ct);
