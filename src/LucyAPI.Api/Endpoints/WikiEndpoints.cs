@@ -31,7 +31,7 @@ public static class WikiEndpoints
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
 
-            var sections = await wikiSectionService.GetSectionsAsync(wikiId, ct);
+            var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
             return Results.Ok(new WikiDetailResponse { Wiki = wiki, Sections = tree });
         });
@@ -47,7 +47,7 @@ public static class WikiEndpoints
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
 
-            var sections = await wikiSectionService.GetSectionsAsync(wikiId, ct);
+            var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
             var html = HtmlDocumentRenderer.RenderWikiDocument(tree);
             return Results.Content(html, "text/html");
@@ -72,7 +72,7 @@ public static class WikiEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await wikiService.UpdateAsync(wikiId, request, ct);
+            var result = await wikiService.UpdateAsync(caller.UserId, wikiId, request, ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
         });
 
@@ -83,8 +83,8 @@ public static class WikiEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var count = await wikiService.DeleteAsync(wikiId, ct);
-            return count >= 0 ? Results.Ok(new SectionsDeletedResponse { SectionsDeleted = count }) : Results.NotFound();
+            var count = await wikiService.DeleteAsync(caller.UserId, wikiId, ct);
+            return count is int deleted ? Results.Ok(new SectionsDeletedResponse { SectionsDeleted = deleted }) : Results.NotFound();
         });
     }
 }

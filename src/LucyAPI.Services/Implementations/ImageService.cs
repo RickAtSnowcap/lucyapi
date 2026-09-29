@@ -39,9 +39,9 @@ public sealed class ImageService : IImageService
         return ToResponse(record!);
     }
 
-    public async Task<ImageResponse> EditAsync(int? userId, EditImageRequest request, CancellationToken ct)
+    public async Task<ImageResponse> EditAsync(int userId, EditImageRequest request, CancellationToken ct)
     {
-        var (sourceBytes, sourceDesc) = await LoadSourceImageAsync(request.ImageId, request.ImageUrl, ct);
+        var (sourceBytes, sourceDesc) = await LoadSourceImageAsync(userId, request.ImageId, request.ImageUrl, ct);
 
         var result = await _gemini.EditImageAsync(sourceBytes, request.Prompt, request.Model, ct);
 
@@ -59,9 +59,9 @@ public sealed class ImageService : IImageService
         return ToResponse(record!);
     }
 
-    public async Task<AnalyzeImageResponse> AnalyzeAsync(AnalyzeImageRequest request, CancellationToken ct)
+    public async Task<AnalyzeImageResponse> AnalyzeAsync(int userId, AnalyzeImageRequest request, CancellationToken ct)
     {
-        var (sourceBytes, sourceDesc) = await LoadSourceImageAsync(request.ImageId, request.ImageUrl, ct);
+        var (sourceBytes, sourceDesc) = await LoadSourceImageAsync(userId, request.ImageId, request.ImageUrl, ct);
 
         var result = await _gemini.AnalyzeImageAsync(sourceBytes, request.Prompt, ct);
 
@@ -80,21 +80,21 @@ public sealed class ImageService : IImageService
         return records.Select(ToResponse).ToList();
     }
 
-    public async Task<ImageResponse?> GetAsync(int imageId, CancellationToken ct)
+    public async Task<ImageResponse?> GetAsync(int userId, int imageId, CancellationToken ct)
     {
-        var record = await _repo.GetAsync(imageId, ct);
+        var record = await _repo.GetAsync(userId, imageId, ct);
         return record is null ? null : ToResponse(record);
     }
 
-    public async Task<ImageResponse?> UpdateKeepAsync(int imageId, bool keep, CancellationToken ct)
+    public async Task<ImageResponse?> UpdateKeepAsync(int userId, int imageId, bool keep, CancellationToken ct)
     {
-        var record = await _repo.UpdateKeepAsync(imageId, keep, ct);
+        var record = await _repo.UpdateKeepAsync(userId, imageId, keep, ct);
         return record is null ? null : ToResponse(record);
     }
 
-    public async Task<ImageDeleteResponse> DeleteAsync(int imageId, bool force, CancellationToken ct)
+    public async Task<ImageDeleteResponse> DeleteAsync(int userId, int imageId, bool force, CancellationToken ct)
     {
-        var result = await _repo.DeleteAsync(imageId, force, ct);
+        var result = await _repo.DeleteAsync(userId, imageId, force, ct);
         if (result is null)
             return new ImageDeleteResponse { ImageId = imageId, Deleted = false, Detail = "Not found" };
 
@@ -113,7 +113,7 @@ public sealed class ImageService : IImageService
         return new ImageDeleteResponse { ImageId = imageId, Deleted = true };
     }
 
-    public async Task<ImageCleanupResponse> CleanupAsync(int? userId, CancellationToken ct)
+    public async Task<ImageCleanupResponse> CleanupAsync(int userId, CancellationToken ct)
     {
         var unkept = await _repo.GetUnkeptAsync(userId, ct);
         if (unkept.Count == 0)
@@ -128,7 +128,7 @@ public sealed class ImageService : IImageService
 
         // Delete DB records
         var ids = unkept.Select(x => x.ImageId).ToArray();
-        var count = await _repo.DeleteBatchAsync(ids, ct);
+        var count = await _repo.DeleteBatchAsync(userId, ids, ct);
 
         return new ImageCleanupResponse { Deleted = count };
     }
@@ -150,15 +150,15 @@ public sealed class ImageService : IImageService
     };
 
     private async Task<(byte[] Bytes, string Description)> LoadSourceImageAsync(
-        int? imageId, string? imageUrl, CancellationToken ct)
+        int userId, int? imageId, string? imageUrl, CancellationToken ct)
     {
         if (imageId.HasValue)
         {
-            var record = await _repo.GetAsync(imageId.Value, ct)
-                ?? throw new InvalidOperationException($"Image {imageId.Value} not found");
+            var record = await _repo.GetAsync(userId, imageId.Value, ct)
+                ?? throw new KeyNotFoundException($"Image {imageId.Value} not found");
             var filepath = Path.Combine(_imagesDir, record.Filename);
             if (!File.Exists(filepath))
-                throw new InvalidOperationException($"Image file not found on disk for image_id={imageId.Value}");
+                throw new KeyNotFoundException($"Image file not found on disk for image_id={imageId.Value}");
             var bytes = await File.ReadAllBytesAsync(filepath, ct);
             return (bytes, $"image_id={imageId.Value}");
         }

@@ -1,10 +1,9 @@
 -- fn_wiki_section_delete.sql
--- Deletes a wiki section and all descendants via recursive CTE.
--- Tags cascade automatically via FK ON DELETE CASCADE.
--- Touches parent wiki updated_at.
--- Returns total count of deleted rows.
+-- Deletes a wiki section and its descendants. Returns the count deleted.
+-- Requires edit access to the wiki (fn_access_level >= 2) — a level-2 share may delete sections;
+-- only deleting the wiki itself needs level 3 (fn_wiki_delete). Otherwise returns 0.
 
-CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_section_delete(p_wiki_id INT, p_section_id INT)
+CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_section_delete(p_user_id INT, p_wiki_id INT, p_section_id INT)
 RETURNS TABLE(deleted_count INT)
 LANGUAGE plpgsql
 SECURITY INVOKER
@@ -12,6 +11,11 @@ AS $proc$
 DECLARE
     v_count INT;
 BEGIN
+    IF lucyapi.fn_access_level(p_user_id, 3::SMALLINT, p_wiki_id) < 2 THEN
+        RETURN QUERY SELECT 0;
+        RETURN;
+    END IF;
+
     WITH RECURSIVE subtree AS (
         SELECT ws.section_id
           FROM public.wiki_sections ws

@@ -1,13 +1,17 @@
 -- fn_wiki_section_get.sql
--- Returns a wiki section node and its direct children with aggregated tags.
--- is_child = false for the requested node, true for children.
+-- Returns a wiki section and its direct children, with tags.
+-- Requires read access to the wiki (fn_access_level >= 1); otherwise no rows.
 
-CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_section_get(p_wiki_id INT, p_section_id INT)
+CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_section_get(p_user_id INT, p_wiki_id INT, p_section_id INT)
 RETURNS TABLE(section_id INT, parent_id INT, title TEXT, description TEXT, updated_at TIMESTAMPTZ, tags TEXT[], is_child BOOLEAN)
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
 BEGIN
+    IF lucyapi.fn_access_level(p_user_id, 3::SMALLINT, p_wiki_id) < 1 THEN
+        RETURN;
+    END IF;
+
     RETURN QUERY
     WITH targets AS (
         SELECT ws.section_id, ws.parent_id, ws.title::TEXT, ws.description, ws.updated_at,

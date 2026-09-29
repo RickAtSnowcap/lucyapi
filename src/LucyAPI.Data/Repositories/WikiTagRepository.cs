@@ -5,12 +5,12 @@ namespace LucyAPI.Data.Repositories;
 
 public sealed class WikiTagRepository(NpgsqlDataSource dataSource)
 {
-    public async Task<List<string>> GetTagsAsync(int wikiId, CancellationToken ct = default)
+    public async Task<List<string>> GetTagsAsync(int userId, int wikiId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_tags_get($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_tags_get($1, $2)", conn)
         {
-            Parameters = { new() { Value = wikiId } }
+            Parameters = { new() { Value = userId }, new() { Value = wikiId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var results = new List<string>();

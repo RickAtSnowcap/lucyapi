@@ -5,12 +5,12 @@ namespace LucyAPI.Data.Repositories;
 
 public sealed class WikiSectionRepository(NpgsqlDataSource dataSource)
 {
-    public async Task<List<WikiSection>> GetSectionsAsync(int wikiId, CancellationToken ct = default)
+    public async Task<List<WikiSection>> GetSectionsAsync(int userId, int wikiId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_get_sections($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_get_sections($1, $2)", conn)
         {
-            Parameters = { new() { Value = wikiId } }
+            Parameters = { new() { Value = userId }, new() { Value = wikiId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var results = new List<WikiSection>();
@@ -29,12 +29,12 @@ public sealed class WikiSectionRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<List<WikiSection>> GetAsync(int wikiId, int sectionId, CancellationToken ct = default)
+    public async Task<List<WikiSection>> GetAsync(int userId, int wikiId, int sectionId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_get($1, $2)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_get($1, $2, $3)", conn)
         {
-            Parameters = { new() { Value = wikiId }, new() { Value = sectionId } }
+            Parameters = { new() { Value = userId }, new() { Value = wikiId }, new() { Value = sectionId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var results = new List<WikiSection>();
@@ -54,13 +54,14 @@ public sealed class WikiSectionRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<WikiSectionCreated?> CreateAsync(int wikiId, int parentId, string title, string description, string[]? tags, CancellationToken ct = default)
+    public async Task<WikiSectionCreated?> CreateAsync(int userId, int wikiId, int parentId, string title, string description, string[]? tags, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_create($1, $2, $3, $4, $5)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_create($1, $2, $3, $4, $5, $6)", conn)
         {
             Parameters =
             {
+                new() { Value = userId },
                 new() { Value = wikiId },
                 new() { Value = parentId },
                 new() { Value = title },
@@ -77,13 +78,14 @@ public sealed class WikiSectionRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<WikiSectionCreated?> UpdateAsync(int wikiId, int sectionId, string? title, string? description, string[]? tags, CancellationToken ct = default)
+    public async Task<WikiSectionCreated?> UpdateAsync(int userId, int wikiId, int sectionId, string? title, string? description, string[]? tags, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_update($1, $2, $3, $4, $5)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_update($1, $2, $3, $4, $5, $6)", conn)
         {
             Parameters =
             {
+                new() { Value = userId },
                 new() { Value = wikiId },
                 new() { Value = sectionId },
                 new() { Value = (object?)title ?? DBNull.Value },
@@ -100,12 +102,12 @@ public sealed class WikiSectionRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<int> DeleteAsync(int wikiId, int sectionId, CancellationToken ct = default)
+    public async Task<int> DeleteAsync(int userId, int wikiId, int sectionId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_delete($1, $2)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_section_delete($1, $2, $3)", conn)
         {
-            Parameters = { new() { Value = wikiId }, new() { Value = sectionId } }
+            Parameters = { new() { Value = userId }, new() { Value = wikiId }, new() { Value = sectionId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return 0;

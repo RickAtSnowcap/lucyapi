@@ -54,13 +54,14 @@ public sealed class WikiRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<WikiCreated?> UpdateAsync(int wikiId, string? title, string? description, CancellationToken ct = default)
+    public async Task<WikiCreated?> UpdateAsync(int userId, int wikiId, string? title, string? description, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_update($1, $2, $3)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_update($1, $2, $3, $4)", conn)
         {
             Parameters =
             {
+                new() { Value = userId },
                 new() { Value = wikiId },
                 new() { Value = (object?)title ?? DBNull.Value },
                 new() { Value = (object?)description ?? DBNull.Value }
@@ -75,15 +76,16 @@ public sealed class WikiRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<int> DeleteAsync(int wikiId, CancellationToken ct = default)
+    /// <summary>Returns sections deleted, or null when the wiki is not found / caller lacks owner access.</summary>
+    public async Task<int?> DeleteAsync(int userId, int wikiId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_delete($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_wiki_delete($1, $2)", conn)
         {
-            Parameters = { new() { Value = wikiId } }
+            Parameters = { new() { Value = userId }, new() { Value = wikiId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return 0;
+        if (!await reader.ReadAsync(ct)) return null;
         return reader.GetInt32(0);
     }
 

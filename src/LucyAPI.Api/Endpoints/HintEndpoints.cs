@@ -38,7 +38,7 @@ public static class HintEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var items = await hintService.GetAsync(pkid, ct);
+            var items = await hintService.GetAsync(caller.UserId, pkid, ct);
             if (items.Count == 0) return Results.NotFound();
 
             var tree = TreeBuilder.Build(items, h => h.Pkid, h => h.ParentId, items[0].ParentId);
@@ -53,7 +53,7 @@ public static class HintEndpoints
         {
             var caller = ctx.GetAgentContext();
             var result = await hintService.CreateCategoryAsync(caller.UserId, request, ct);
-            return result is null ? Results.BadRequest() : Results.Created($"/hints/{result.Pkid}", result);
+            return result is null ? Results.NotFound() : Results.Created($"/hints/{result.Pkid}", result);
         });
 
         app.MapPost("/hints", async (
@@ -64,7 +64,7 @@ public static class HintEndpoints
         {
             var caller = ctx.GetAgentContext();
             var result = await hintService.CreateAsync(caller.UserId, request, ct);
-            return result is null ? Results.BadRequest() : Results.Created($"/hints/{result.Pkid}", result);
+            return result is null ? Results.NotFound() : Results.Created($"/hints/{result.Pkid}", result);
         });
 
         app.MapPut("/hints/{pkid:int}", async (
@@ -75,7 +75,7 @@ public static class HintEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await hintService.UpdateAsync(pkid, request, ct);
+            var result = await hintService.UpdateAsync(caller.UserId, pkid, request, ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
         });
 
@@ -86,7 +86,7 @@ public static class HintEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var count = await hintService.DeleteAsync(pkid, ct);
+            var count = await hintService.DeleteAsync(caller.UserId, pkid, ct);
             return count > 0 ? Results.Ok(new DeleteCountResponse { DeletedCount = count }) : Results.NotFound();
         });
 
@@ -97,7 +97,7 @@ public static class HintEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var count = await hintService.DeleteCategoryAsync(pkid, ct);
+            var count = await hintService.DeleteCategoryAsync(caller.UserId, pkid, ct);
             return count > 0 ? Results.Ok(new DeleteCountResponse { DeletedCount = count }) : Results.NotFound();
         });
     }

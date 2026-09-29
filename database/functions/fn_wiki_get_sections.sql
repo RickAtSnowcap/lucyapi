@@ -1,13 +1,16 @@
 -- fn_wiki_get_sections.sql
--- Returns all sections for a wiki as a flat list with aggregated tags.
--- Tree building happens in the application layer.
+-- Returns all sections (with tags) for a wiki. Requires read access (fn_access_level >= 1); otherwise no rows.
 
-CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_get_sections(p_wiki_id INT)
+CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_get_sections(p_user_id INT, p_wiki_id INT)
 RETURNS TABLE(section_id INT, parent_id INT, title TEXT, description TEXT, updated_at TIMESTAMPTZ, tags TEXT[])
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
 BEGIN
+    IF lucyapi.fn_access_level(p_user_id, 3::SMALLINT, p_wiki_id) < 1 THEN
+        RETURN;
+    END IF;
+
     RETURN QUERY
     SELECT ws.section_id,
            ws.parent_id,

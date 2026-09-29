@@ -15,7 +15,7 @@ public static class WikiTagEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var tags = await wikiTagService.GetTagsAsync(wikiId, ct);
+            var tags = await wikiTagService.GetTagsAsync(caller.UserId, wikiId, ct);
             return Results.Ok(new WikiTagListResponse { WikiId = wikiId, Tags = tags });
         });
 

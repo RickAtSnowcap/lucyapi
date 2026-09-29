@@ -28,12 +28,12 @@ public sealed class ImageRepository(NpgsqlDataSource dataSource)
         return ReadImageRecord(reader);
     }
 
-    public async Task<ImageRecord?> GetAsync(int imageId, CancellationToken ct = default)
+    public async Task<ImageRecord?> GetAsync(int userId, int imageId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_image_get($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_image_get($1, $2)", conn)
         {
-            Parameters = { new() { Value = imageId } }
+            Parameters = { new() { Value = userId }, new() { Value = imageId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -64,26 +64,26 @@ public sealed class ImageRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<ImageRecord?> UpdateKeepAsync(int imageId, bool keep, CancellationToken ct = default)
+    public async Task<ImageRecord?> UpdateKeepAsync(int userId, int imageId, bool keep, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(
-            "SELECT * FROM lucyapi.fn_image_update_keep($1, $2)", conn)
+            "SELECT * FROM lucyapi.fn_image_update_keep($1, $2, $3)", conn)
         {
-            Parameters = { new() { Value = imageId }, new() { Value = keep } }
+            Parameters = { new() { Value = userId }, new() { Value = imageId }, new() { Value = keep } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
         return ReadImageRecord(reader);
     }
 
-    public async Task<ImageDeleteResult?> DeleteAsync(int imageId, bool force, CancellationToken ct = default)
+    public async Task<ImageDeleteResult?> DeleteAsync(int userId, int imageId, bool force, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(
-            "SELECT * FROM lucyapi.fn_image_delete($1, $2)", conn)
+            "SELECT * FROM lucyapi.fn_image_delete($1, $2, $3)", conn)
         {
-            Parameters = { new() { Value = imageId }, new() { Value = force } }
+            Parameters = { new() { Value = userId }, new() { Value = imageId }, new() { Value = force } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -112,12 +112,12 @@ public sealed class ImageRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<int> DeleteBatchAsync(int[] imageIds, CancellationToken ct = default)
+    public async Task<int> DeleteBatchAsync(int userId, int[] imageIds, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT lucyapi.fn_image_delete_batch($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT lucyapi.fn_image_delete_batch($1, $2)", conn)
         {
-            Parameters = { new() { Value = imageIds } }
+            Parameters = { new() { Value = userId }, new() { Value = imageIds } }
         };
         var result = await cmd.ExecuteScalarAsync(ct);
         return result is int count ? count : 0;

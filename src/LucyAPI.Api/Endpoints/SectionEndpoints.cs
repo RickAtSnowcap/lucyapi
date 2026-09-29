@@ -18,7 +18,7 @@ public static class SectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var items = await sectionService.GetAsync(projectId, sectionId, ct);
+            var items = await sectionService.GetAsync(caller.UserId, projectId, sectionId, ct);
             if (items.Count == 0) return Results.NotFound();
 
             var tree = TreeBuilder.Build(items, s => s.SectionId, s => s.ParentId, items[0].ParentId);
@@ -33,8 +33,8 @@ public static class SectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await sectionService.CreateAsync(projectId, request, ct);
-            return result is null ? Results.BadRequest() : Results.Created($"/projects/{projectId}/sections/{result.SectionId}", result);
+            var result = await sectionService.CreateAsync(caller.UserId, projectId, request, ct);
+            return result is null ? Results.NotFound() : Results.Created($"/projects/{projectId}/sections/{result.SectionId}", result);
         });
 
         app.MapPut("/projects/{projectId:int}/sections/{sectionId:int}", async (
@@ -46,7 +46,7 @@ public static class SectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await sectionService.UpdateAsync(projectId, sectionId, request, ct);
+            var result = await sectionService.UpdateAsync(caller.UserId, projectId, sectionId, request, ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
         });
 
@@ -58,7 +58,7 @@ public static class SectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var count = await sectionService.DeleteAsync(projectId, sectionId, ct);
+            var count = await sectionService.DeleteAsync(caller.UserId, projectId, sectionId, ct);
             return count > 0 ? Results.Ok(new DeleteCountResponse { DeletedCount = count }) : Results.NotFound();
         });
     }

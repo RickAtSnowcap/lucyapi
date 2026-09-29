@@ -16,9 +16,9 @@ public sealed class WikiService(WikiRepository repo) : IWikiService
     public Task<WikiCreated?> CreateAsync(int userId, CreateWikiRequest request, CancellationToken ct)
         => repo.CreateAsync(userId, request.Title, request.Description, ct);
 
-    public Task<WikiCreated?> UpdateAsync(int wikiId, UpdateWikiRequest request, CancellationToken ct)
-        => repo.UpdateAsync(wikiId, request.Title, request.Description, ct);
+    public Task<WikiCreated?> UpdateAsync(int userId, int wikiId, UpdateWikiRequest request, CancellationToken ct)
+        => repo.UpdateAsync(userId, wikiId, request.Title, request.Description, ct);
 
-    public Task<int> DeleteAsync(int wikiId, CancellationToken ct)
-        => repo.DeleteAsync(wikiId, ct);
+    public Task<int?> DeleteAsync(int userId, int wikiId, CancellationToken ct)
+        => repo.DeleteAsync(userId, wikiId, ct);
 }

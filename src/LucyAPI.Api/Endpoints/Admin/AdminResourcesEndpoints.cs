@@ -21,7 +21,7 @@ public static class AdminResourcesEndpoints
             IProjectService projectService,
             CancellationToken ct) =>
         {
-            _ = ctx.GetUserContext();
+            ctx.GetUserContext(); // auth gate only; statuses are global lookup data
             var statuses = await projectService.GetStatusesAsync(ct);
             return Results.Ok(new AdminProjectStatusListResponse { Statuses = statuses });
         });
@@ -50,7 +50,7 @@ public static class AdminResourcesEndpoints
             var project = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (project is null) return Results.NotFound();
 
-            var sections = await sectionService.GetSectionsAsync(projectId, ct);
+            var sections = await sectionService.GetSectionsAsync(caller.UserId, projectId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
 
             project.DocumentUrl = documentLinks.CreateProjectUrl(projectId, caller.UserId);
@@ -83,7 +83,7 @@ public static class AdminResourcesEndpoints
             var existing = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (existing is null) return Results.NotFound();
 
-            var result = await projectService.UpdateAsync(projectId, request, ct);
+            var result = await projectService.UpdateAsync(caller.UserId, projectId, request, ct);
             return result is null
                 ? Results.NotFound()
                 : Results.Ok(new AdminUpdatedResponse<ProjectCreated> { Updated = result });
@@ -100,8 +100,9 @@ public static class AdminResourcesEndpoints
             var existing = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (existing is null) return Results.NotFound();
 
-            var count = await projectService.DeleteAsync(projectId, ct);
-            return Results.Ok(new AdminSectionsDeletedResponse { Deleted = projectId, SectionsDeleted = count });
+            var count = await projectService.DeleteAsync(caller.UserId, projectId, ct);
+            if (count is not int sectionsDeleted) return Results.NotFound();
+            return Results.Ok(new AdminSectionsDeletedResponse { Deleted = projectId, SectionsDeleted = sectionsDeleted });
         });
 
         // ── Project Sections ─────────────────────────────────────
@@ -118,9 +119,9 @@ public static class AdminResourcesEndpoints
             var project = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (project is null) return Results.NotFound();
 
-            var result = await sectionService.CreateAsync(projectId, request, ct);
+            var result = await sectionService.CreateAsync(caller.UserId, projectId, request, ct);
             return result is null
-                ? Results.BadRequest()
+                ? Results.NotFound()
                 : Results.Ok(new AdminCreatedResponse<SectionCreated> { Created = result });
         });
 
@@ -137,7 +138,7 @@ public static class AdminResourcesEndpoints
             var project = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (project is null) return Results.NotFound();
 
-            var result = await sectionService.UpdateAsync(projectId, sectionId, request, ct);
+            var result = await sectionService.UpdateAsync(caller.UserId, projectId, sectionId, request, ct);
             return result is null
                 ? Results.NotFound()
                 : Results.Ok(new AdminUpdatedResponse<SectionCreated> { Updated = result });
@@ -155,7 +156,7 @@ public static class AdminResourcesEndpoints
             var project = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (project is null) return Results.NotFound();
 
-            var count = await sectionService.DeleteAsync(projectId, sectionId, ct);
+            var count = await sectionService.DeleteAsync(caller.UserId, projectId, sectionId, ct);
             if (count == 0) return Results.NotFound();
             return Results.Ok(new AdminDeletedResponse { Deleted = sectionId, DescendantsDeleted = count - 1 });
         });
@@ -183,7 +184,7 @@ public static class AdminResourcesEndpoints
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
 
-            var tags = await wikiTagService.GetTagsAsync(wikiId, ct);
+            var tags = await wikiTagService.GetTagsAsync(caller.UserId, wikiId, ct);
             return Results.Ok(new AdminWikiTagListResponse { WikiId = wikiId, Tags = tags });
         });
 
@@ -198,7 +199,7 @@ public static class AdminResourcesEndpoints
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
 
-            var sections = await wikiSectionService.GetSectionsAsync(wikiId, ct);
+            var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
             return Results.Ok(new WikiDetailResponse { Wiki = wiki, Sections = tree });
         });
@@ -227,7 +228,7 @@ public static class AdminResourcesEndpoints
             var existing = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (existing is null) return Results.NotFound();
 
-            var result = await wikiService.UpdateAsync(wikiId, request, ct);
+            var result = await wikiService.UpdateAsync(caller.UserId, wikiId, request, ct);
             return result is null
                 ? Results.NotFound()
                 : Results.Ok(new AdminUpdatedResponse<WikiCreated> { Updated = result });
@@ -243,8 +244,9 @@ public static class AdminResourcesEndpoints
             var existing = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (existing is null) return Results.NotFound();
 
-            var count = await wikiService.DeleteAsync(wikiId, ct);
-            return Results.Ok(new AdminSectionsDeletedResponse { Deleted = wikiId, SectionsDeleted = count });
+            var count = await wikiService.DeleteAsync(caller.UserId, wikiId, ct);
+            if (count is not int sectionsDeleted) return Results.NotFound();
+            return Results.Ok(new AdminSectionsDeletedResponse { Deleted = wikiId, SectionsDeleted = sectionsDeleted });
         });
 
         // ── Wiki Sections ────────────────────────────────────────
@@ -261,9 +263,9 @@ public static class AdminResourcesEndpoints
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
 
-            var result = await wikiSectionService.CreateAsync(wikiId, request, ct);
+            var result = await wikiSectionService.CreateAsync(caller.UserId, wikiId, request, ct);
             return result is null
-                ? Results.BadRequest()
+                ? Results.NotFound()
                 : Results.Ok(new AdminCreatedResponse<WikiSectionCreated> { Created = result });
         });
 
@@ -280,7 +282,7 @@ public static class AdminResourcesEndpoints
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
 
-            var result = await wikiSectionService.UpdateAsync(wikiId, sectionId, request, ct);
+            var result = await wikiSectionService.UpdateAsync(caller.UserId, wikiId, sectionId, request, ct);
             return result is null
                 ? Results.NotFound()
                 : Results.Ok(new AdminUpdatedResponse<WikiSectionCreated> { Updated = result });
@@ -298,7 +300,7 @@ public static class AdminResourcesEndpoints
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
 
-            var count = await wikiSectionService.DeleteAsync(wikiId, sectionId, ct);
+            var count = await wikiSectionService.DeleteAsync(caller.UserId, wikiId, sectionId, ct);
             if (count == 0) return Results.NotFound();
             return Results.Ok(new AdminDeletedResponse { Deleted = sectionId, DescendantsDeleted = count - 1 });
         });
@@ -321,8 +323,8 @@ public static class AdminResourcesEndpoints
             IHintService hintService,
             CancellationToken ct) =>
         {
-            _ = ctx.GetUserContext();
-            var items = await hintService.GetAsync(hintId, ct);
+            var caller = ctx.GetUserContext();
+            var items = await hintService.GetAsync(caller.UserId, hintId, ct);
             if (items.Count == 0) return Results.NotFound();
 
             var tree = TreeBuilder.Build(items, i => i.Pkid, i => i.ParentId, items[0].ParentId);
@@ -338,7 +340,7 @@ public static class AdminResourcesEndpoints
             var caller = ctx.GetUserContext();
             var result = await hintService.CreateCategoryAsync(caller.UserId, request, ct);
             return result is null
-                ? Results.BadRequest()
+                ? Results.NotFound()
                 : Results.Ok(new AdminCreatedResponse<HintCreated> { Created = result });
         });
 
@@ -351,7 +353,7 @@ public static class AdminResourcesEndpoints
             var caller = ctx.GetUserContext();
             var result = await hintService.CreateAsync(caller.UserId, request, ct);
             return result is null
-                ? Results.BadRequest()
+                ? Results.NotFound()
                 : Results.Ok(new AdminCreatedResponse<HintCreated> { Created = result });
         });
 
@@ -362,8 +364,8 @@ public static class AdminResourcesEndpoints
             IHintService hintService,
             CancellationToken ct) =>
         {
-            _ = ctx.GetUserContext();
-            var result = await hintService.UpdateAsync(hintId, request, ct);
+            var caller = ctx.GetUserContext();
+            var result = await hintService.UpdateAsync(caller.UserId, hintId, request, ct);
             return result is null
                 ? Results.NotFound()
                 : Results.Ok(new AdminUpdatedResponse<MutationResult> { Updated = result });
@@ -375,8 +377,8 @@ public static class AdminResourcesEndpoints
             IHintService hintService,
             CancellationToken ct) =>
         {
-            _ = ctx.GetUserContext();
-            var count = await hintService.DeleteAsync(hintId, ct);
+            var caller = ctx.GetUserContext();
+            var count = await hintService.DeleteAsync(caller.UserId, hintId, ct);
             if (count == 0) return Results.NotFound();
             return Results.Ok(new AdminDeletedResponse { Deleted = hintId, DescendantsDeleted = count - 1 });
         });
@@ -568,7 +570,8 @@ public static class AdminResourcesEndpoints
         {
             var caller = ctx.GetUserContext();
             var result = await shareService.ShareAsync(caller.UserId, request, ct);
-            if (result is null) return Results.BadRequest();
+            if (result is null)
+                return Results.NotFound(new ErrorResponse { Error = "Object not found or you don't own it" });
             return Results.Ok(new AdminShareCreatedResponse
             {
                 Shared = new AdminShareCreatedItem
@@ -644,8 +647,8 @@ public static class AdminResourcesEndpoints
             IImageService imageService,
             CancellationToken ct) =>
         {
-            _ = ctx.GetUserContext();
-            var image = await imageService.GetAsync(imageId, ct);
+            var caller = ctx.GetUserContext();
+            var image = await imageService.GetAsync(caller.UserId, imageId, ct);
             return image is null ? Results.NotFound() : Results.Ok(image);
         });
 
@@ -667,8 +670,8 @@ public static class AdminResourcesEndpoints
             IImageService imageService,
             CancellationToken ct) =>
         {
-            _ = ctx.GetUserContext();
-            var result = await imageService.UpdateKeepAsync(imageId, request.Keep, ct);
+            var caller = ctx.GetUserContext();
+            var result = await imageService.UpdateKeepAsync(caller.UserId, imageId, request.Keep, ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
         });
 
@@ -679,8 +682,9 @@ public static class AdminResourcesEndpoints
             IImageService imageService,
             CancellationToken ct) =>
         {
-            _ = ctx.GetUserContext();
-            var result = await imageService.DeleteAsync(imageId, force ?? false, ct);
+            var caller = ctx.GetUserContext();
+            var result = await imageService.DeleteAsync(caller.UserId, imageId, force ?? false, ct);
+            if (result.Detail == "Not found") return Results.NotFound();
             return Results.Ok(result);
         });
 

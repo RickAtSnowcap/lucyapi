@@ -17,7 +17,7 @@ public static class ShareEndpoints
         {
             var caller = ctx.GetAgentContext();
             var result = await shareService.ShareAsync(caller.UserId, request, ct);
-            return result is null ? Results.BadRequest() : Results.Created($"/sharing/{result.ShareId}", result);
+            return result is null ? Results.NotFound() : Results.Created($"/sharing/{result.ShareId}", result);
         });
 
         app.MapDelete("/sharing/{shareId:int}", async (

@@ -18,7 +18,7 @@ public static class WikiSectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var items = await wikiSectionService.GetAsync(wikiId, sectionId, ct);
+            var items = await wikiSectionService.GetAsync(caller.UserId, wikiId, sectionId, ct);
             if (items.Count == 0) return Results.NotFound();
 
             var tree = TreeBuilder.Build(items, s => s.SectionId, s => s.ParentId, items[0].ParentId);
@@ -33,8 +33,8 @@ public static class WikiSectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await wikiSectionService.CreateAsync(wikiId, request, ct);
-            return result is null ? Results.BadRequest() : Results.Created($"/wikis/{wikiId}/sections/{result.SectionId}", result);
+            var result = await wikiSectionService.CreateAsync(caller.UserId, wikiId, request, ct);
+            return result is null ? Results.NotFound() : Results.Created($"/wikis/{wikiId}/sections/{result.SectionId}", result);
         });
 
         app.MapPut("/wikis/{wikiId:int}/sections/{sectionId:int}", async (
@@ -46,7 +46,7 @@ public static class WikiSectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await wikiSectionService.UpdateAsync(wikiId, sectionId, request, ct);
+            var result = await wikiSectionService.UpdateAsync(caller.UserId, wikiId, sectionId, request, ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
         });
 
@@ -58,7 +58,7 @@ public static class WikiSectionEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var count = await wikiSectionService.DeleteAsync(wikiId, sectionId, ct);
+            var count = await wikiSectionService.DeleteAsync(caller.UserId, wikiId, sectionId, ct);
             return count > 0 ? Results.Ok(new DeleteCountResponse { DeletedCount = count }) : Results.NotFound();
         });
     }

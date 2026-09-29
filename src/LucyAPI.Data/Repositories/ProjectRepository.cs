@@ -79,13 +79,14 @@ public sealed class ProjectRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<ProjectCreated?> UpdateAsync(int projectId, string? title, string? description, int? statusId, CancellationToken ct = default)
+    public async Task<ProjectCreated?> UpdateAsync(int userId, int projectId, string? title, string? description, int? statusId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_update($1, $2, $3, $4)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_update($1, $2, $3, $4, $5)", conn)
         {
             Parameters =
             {
+                new() { Value = userId },
                 new() { Value = projectId },
                 new() { Value = (object?)title ?? DBNull.Value },
                 new() { Value = (object?)description ?? DBNull.Value },
@@ -103,15 +104,16 @@ public sealed class ProjectRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<int> DeleteAsync(int projectId, CancellationToken ct = default)
+    /// <summary>Returns sections deleted, or null when the project is not found / caller lacks owner access.</summary>
+    public async Task<int?> DeleteAsync(int userId, int projectId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_delete($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_delete($1, $2)", conn)
         {
-            Parameters = { new() { Value = projectId } }
+            Parameters = { new() { Value = userId }, new() { Value = projectId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return 0;
+        if (!await reader.ReadAsync(ct)) return null;
         return reader.GetInt32(0);
     }
 

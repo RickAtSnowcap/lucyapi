@@ -9,7 +9,7 @@ public interface IProjectService
     Task<Project?> GetAsync(int projectId, int userId, CancellationToken ct = default);
     Task<ProjectCompact?> GetCompactAsync(int projectId, int userId, CancellationToken ct = default);
     Task<ProjectCreated?> CreateAsync(int userId, CreateProjectRequest request, CancellationToken ct = default);
-    Task<ProjectCreated?> UpdateAsync(int projectId, UpdateProjectRequest request, CancellationToken ct = default);
-    Task<int> DeleteAsync(int projectId, CancellationToken ct = default);
+    Task<ProjectCreated?> UpdateAsync(int userId, int projectId, UpdateProjectRequest request, CancellationToken ct = default);
+    Task<int?> DeleteAsync(int userId, int projectId, CancellationToken ct = default);
     Task<List<ProjectStatus>> GetStatusesAsync(CancellationToken ct = default);
 }

@@ -124,24 +124,24 @@ public sealed class McpToolDispatcher(
             // --- Hints ---
             "get_hints" => await HandleGetHints(caller, ct),
             "get_hints_compact" => await HandleGetHintsCompact(caller, ct),
-            "get_hint" => await HandleGetHint(args, ct),
+            "get_hint" => await HandleGetHint(caller, args, ct),
             "create_hint_category" => await HandleCreateHintCategory(caller, args, ct),
             "create_hint" => await HandleCreateHint(caller, args, ct),
-            "update_hint" => await HandleUpdateHint(args, ct),
-            "delete_hint" => await HandleDeleteHint(args, ct),
-            "delete_hint_category" => await HandleDeleteHintCategory(args, ct),
+            "update_hint" => await HandleUpdateHint(caller, args, ct),
+            "delete_hint" => await HandleDeleteHint(caller, args, ct),
+            "delete_hint_category" => await HandleDeleteHintCategory(caller, args, ct),
 
             // --- Wikis ---
             "get_wikis" => await HandleGetWikis(caller, ct),
             "get_wiki" => await HandleGetWiki(caller, args, ct),
             "create_wiki" => await HandleCreateWiki(caller, args, ct),
-            "update_wiki" => await HandleUpdateWiki(args, ct),
-            "delete_wiki" => await HandleDeleteWiki(args, ct),
-            "create_wiki_section" => await HandleCreateWikiSection(args, ct),
-            "get_wiki_section" => await HandleGetWikiSection(args, ct),
-            "update_wiki_section" => await HandleUpdateWikiSection(args, ct),
-            "delete_wiki_section" => await HandleDeleteWikiSection(args, ct),
-            "get_wiki_tags" => await HandleGetWikiTags(args, ct),
+            "update_wiki" => await HandleUpdateWiki(caller, args, ct),
+            "delete_wiki" => await HandleDeleteWiki(caller, args, ct),
+            "create_wiki_section" => await HandleCreateWikiSection(caller, args, ct),
+            "get_wiki_section" => await HandleGetWikiSection(caller, args, ct),
+            "update_wiki_section" => await HandleUpdateWikiSection(caller, args, ct),
+            "delete_wiki_section" => await HandleDeleteWikiSection(caller, args, ct),
+            "get_wiki_tags" => await HandleGetWikiTags(caller, args, ct),
             "search_wiki_tag" => await HandleSearchWikiTag(caller, args, ct),
 
             // --- Sharing ---
@@ -180,10 +180,10 @@ public sealed class McpToolDispatcher(
             // --- Images ---
             "generate_image" => await HandleGenerateImage(caller, args, ct),
             "edit_image" => await HandleEditImage(caller, args, ct),
-            "analyze_image" => await HandleAnalyzeImage(args, ct),
+            "analyze_image" => await HandleAnalyzeImage(caller, args, ct),
             "list_images" => await HandleListImages(caller, args, ct),
-            "keep_image" => await HandleKeepImage(args, ct),
-            "delete_image" => await HandleDeleteImage(args, ct),
+            "keep_image" => await HandleKeepImage(caller, args, ct),
+            "delete_image" => await HandleDeleteImage(caller, args, ct),
             "cleanup_images" => await HandleCleanupImages(caller, ct),
 
             // --- Google Docs ---
@@ -430,7 +430,7 @@ public sealed class McpToolDispatcher(
 
         project.DocumentUrl = documentLinks.CreateProjectUrl(projectId, caller.UserId);
 
-        var sections = await sectionService.GetSectionsAsync(projectId, ct);
+        var sections = await sectionService.GetSectionsAsync(caller.UserId, projectId, ct);
         var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
         var pJson = Serialize(project, AppJsonSerializerContext.Default.Project);
         var sJson = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeProjectSection);
@@ -443,7 +443,7 @@ public sealed class McpToolDispatcher(
         var project = await projectService.GetCompactAsync(projectId, caller.UserId, ct);
         if (project is null) return Error("Project not found");
 
-        var sections = await sectionService.GetSectionsCompactAsync(projectId, ct);
+        var sections = await sectionService.GetSectionsCompactAsync(caller.UserId, projectId, ct);
         var pJson = Serialize(project, AppJsonSerializerContext.Default.ProjectCompact);
         var sJson = Serialize(sections, AppJsonSerializerContext.Default.ListProjectSectionCompact);
         return "{\"project\":" + pJson + ",\"sections\":" + sJson + "}";
@@ -453,7 +453,7 @@ public sealed class McpToolDispatcher(
     {
         var projectId = GetInt(args, "project_id");
         var sectionId = GetInt(args, "section_id");
-        var items = await sectionService.GetAsync(projectId, sectionId, ct);
+        var items = await sectionService.GetAsync(caller.UserId, projectId, sectionId, ct);
         if (items.Count == 0) return Error("Section not found");
         var tree = TreeBuilder.Build(items, s => s.SectionId, s => s.ParentId, items[0].ParentId);
         var json = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeProjectSection);
@@ -482,8 +482,8 @@ public sealed class McpToolDispatcher(
             Description = GetString(args, "description") ?? "",
             FilePath = GetString(args, "file_path")
         };
-        var result = await sectionService.CreateAsync(projectId, req, ct);
-        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.SectionCreated);
+        var result = await sectionService.CreateAsync(caller.UserId, projectId, req, ct);
+        return result is null ? Error("Project or parent section not found") : Serialize(result, AppJsonSerializerContext.Default.SectionCreated);
     }
 
     private async Task<string> HandleUpdateProject(Agent caller, JsonElement args, CancellationToken ct)
@@ -495,7 +495,7 @@ public sealed class McpToolDispatcher(
             Description = GetString(args, "description"),
             StatusId = GetNullableInt(args, "status_id")
         };
-        var result = await projectService.UpdateAsync(projectId, req, ct);
+        var result = await projectService.UpdateAsync(caller.UserId, projectId, req, ct);
         return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.ProjectCreated);
     }
 
@@ -509,20 +509,20 @@ public sealed class McpToolDispatcher(
             Description = GetString(args, "description"),
             FilePath = GetString(args, "file_path")
         };
-        var result = await sectionService.UpdateAsync(projectId, sectionId, req, ct);
+        var result = await sectionService.UpdateAsync(caller.UserId, projectId, sectionId, req, ct);
         return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.SectionCreated);
     }
 
     private async Task<string> HandleDeleteProject(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var count = await projectService.DeleteAsync(GetInt(args, "project_id"), ct);
-        return "{\"deleted_count\":" + count + "}";
+        var count = await projectService.DeleteAsync(caller.UserId, GetInt(args, "project_id"), ct);
+        return count is int deleted ? "{\"deleted_count\":" + deleted + "}" : Error("Project not found");
     }
 
     private async Task<string> HandleDeleteSection(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var count = await sectionService.DeleteAsync(GetInt(args, "project_id"), GetInt(args, "section_id"), ct);
-        return "{\"sections_deleted\":" + count + "}";
+        var count = await sectionService.DeleteAsync(caller.UserId, GetInt(args, "project_id"), GetInt(args, "section_id"), ct);
+        return count > 0 ? "{\"sections_deleted\":" + count + "}" : Error("Section not found");
     }
 
     // ===============================================================
@@ -543,10 +543,10 @@ public sealed class McpToolDispatcher(
         return "{\"hints\":" + Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeHintCompact) + "}";
     }
 
-    private async Task<string> HandleGetHint(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleGetHint(Agent caller, JsonElement args, CancellationToken ct)
     {
         var hintId = GetInt(args, "hint_id");
-        var items = await hintService.GetAsync(hintId, ct);
+        var items = await hintService.GetAsync(caller.UserId, hintId, ct);
         if (items.Count == 0) return Error("Hint not found");
         var tree = TreeBuilder.Build(items, h => h.Pkid, h => h.ParentId, items[0].ParentId);
         var json = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeHint);
@@ -562,14 +562,14 @@ public sealed class McpToolDispatcher(
             Description = GetString(args, "description") ?? ""
         };
         var result = await hintService.CreateCategoryAsync(caller.UserId, req, ct);
-        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.HintCreated);
+        return result is null ? Error("Parent category not found") : Serialize(result, AppJsonSerializerContext.Default.HintCreated);
     }
 
-    private async Task<string> HandleDeleteHintCategory(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleDeleteHintCategory(Agent caller, JsonElement args, CancellationToken ct)
     {
         var pkid = GetInt(args, "hint_id");
-        var count = await hintService.DeleteCategoryAsync(pkid, ct);
-        return "{\"deleted_count\":" + count + "}";
+        var count = await hintService.DeleteCategoryAsync(caller.UserId, pkid, ct);
+        return count > 0 ? "{\"deleted_count\":" + count + "}" : Error("Hint category not found");
     }
 
     private async Task<string> HandleCreateHint(Agent caller, JsonElement args, CancellationToken ct)
@@ -581,10 +581,10 @@ public sealed class McpToolDispatcher(
             Description = GetString(args, "description") ?? ""
         };
         var result = await hintService.CreateAsync(caller.UserId, req, ct);
-        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.HintCreated);
+        return result is null ? Error("Parent hint not found") : Serialize(result, AppJsonSerializerContext.Default.HintCreated);
     }
 
-    private async Task<string> HandleUpdateHint(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleUpdateHint(Agent caller, JsonElement args, CancellationToken ct)
     {
         var hintId = GetInt(args, "hint_id");
         var req = new UpdateHintRequest
@@ -592,14 +592,14 @@ public sealed class McpToolDispatcher(
             Title = GetString(args, "title"),
             Description = GetString(args, "description")
         };
-        var result = await hintService.UpdateAsync(hintId, req, ct);
+        var result = await hintService.UpdateAsync(caller.UserId, hintId, req, ct);
         return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.MutationResult);
     }
 
-    private async Task<string> HandleDeleteHint(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleDeleteHint(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var count = await hintService.DeleteAsync(GetInt(args, "hint_id"), ct);
-        return "{\"deleted_count\":" + count + "}";
+        var count = await hintService.DeleteAsync(caller.UserId, GetInt(args, "hint_id"), ct);
+        return count > 0 ? "{\"deleted_count\":" + count + "}" : Error("Hint not found");
     }
 
     // ===============================================================
@@ -617,7 +617,7 @@ public sealed class McpToolDispatcher(
         var wikiId = GetInt(args, "wiki_id");
         var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
         if (wiki is null) return Error("Wiki not found");
-        var sections = await wikiSectionService.GetSectionsAsync(wikiId, ct);
+        var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
         var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
         return "{\"wiki\":" + Serialize(wiki, AppJsonSerializerContext.Default.Wiki) +
                ",\"sections\":" + Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeWikiSection) + "}";
@@ -634,7 +634,7 @@ public sealed class McpToolDispatcher(
         return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.WikiCreated);
     }
 
-    private async Task<string> HandleUpdateWiki(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleUpdateWiki(Agent caller, JsonElement args, CancellationToken ct)
     {
         var wikiId = GetInt(args, "wiki_id");
         var req = new UpdateWikiRequest
@@ -642,17 +642,17 @@ public sealed class McpToolDispatcher(
             Title = GetString(args, "title"),
             Description = GetString(args, "description")
         };
-        var result = await wikiService.UpdateAsync(wikiId, req, ct);
+        var result = await wikiService.UpdateAsync(caller.UserId, wikiId, req, ct);
         return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.WikiCreated);
     }
 
-    private async Task<string> HandleDeleteWiki(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleDeleteWiki(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var count = await wikiService.DeleteAsync(GetInt(args, "wiki_id"), ct);
-        return "{\"deleted_count\":" + count + "}";
+        var count = await wikiService.DeleteAsync(caller.UserId, GetInt(args, "wiki_id"), ct);
+        return count is int deleted ? "{\"deleted_count\":" + deleted + "}" : Error("Wiki not found");
     }
 
-    private async Task<string> HandleCreateWikiSection(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleCreateWikiSection(Agent caller, JsonElement args, CancellationToken ct)
     {
         var wikiId = GetInt(args, "wiki_id");
         var req = new CreateWikiSectionRequest
@@ -662,22 +662,22 @@ public sealed class McpToolDispatcher(
             Description = GetString(args, "description") ?? "",
             Tags = GetStringArray(args, "tags")
         };
-        var result = await wikiSectionService.CreateAsync(wikiId, req, ct);
-        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.WikiSectionCreated);
+        var result = await wikiSectionService.CreateAsync(caller.UserId, wikiId, req, ct);
+        return result is null ? Error("Wiki or parent section not found") : Serialize(result, AppJsonSerializerContext.Default.WikiSectionCreated);
     }
 
-    private async Task<string> HandleGetWikiSection(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleGetWikiSection(Agent caller, JsonElement args, CancellationToken ct)
     {
         var wikiId = GetInt(args, "wiki_id");
         var sectionId = GetInt(args, "section_id");
-        var items = await wikiSectionService.GetAsync(wikiId, sectionId, ct);
+        var items = await wikiSectionService.GetAsync(caller.UserId, wikiId, sectionId, ct);
         if (items.Count == 0) return Error("Section not found");
         var tree = TreeBuilder.Build(items, s => s.SectionId, s => s.ParentId, items[0].ParentId);
         var json = Serialize(tree, AppJsonSerializerContext.Default.ListTreeNodeWikiSection);
         return json.Length > 2 ? json[1..^1] : "null";
     }
 
-    private async Task<string> HandleUpdateWikiSection(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleUpdateWikiSection(Agent caller, JsonElement args, CancellationToken ct)
     {
         var wikiId = GetInt(args, "wiki_id");
         var sectionId = GetInt(args, "section_id");
@@ -687,22 +687,22 @@ public sealed class McpToolDispatcher(
             Description = GetString(args, "description"),
             Tags = GetStringArray(args, "tags")
         };
-        var result = await wikiSectionService.UpdateAsync(wikiId, sectionId, req, ct);
+        var result = await wikiSectionService.UpdateAsync(caller.UserId, wikiId, sectionId, req, ct);
         return result is null ? Error("Not found") : Serialize(result, AppJsonSerializerContext.Default.WikiSectionCreated);
     }
 
-    private async Task<string> HandleDeleteWikiSection(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleDeleteWikiSection(Agent caller, JsonElement args, CancellationToken ct)
     {
         var wikiId = GetInt(args, "wiki_id");
         var sectionId = GetInt(args, "section_id");
-        var count = await wikiSectionService.DeleteAsync(wikiId, sectionId, ct);
-        return "{\"deleted_count\":" + count + "}";
+        var count = await wikiSectionService.DeleteAsync(caller.UserId, wikiId, sectionId, ct);
+        return count > 0 ? "{\"deleted_count\":" + count + "}" : Error("Section not found");
     }
 
-    private async Task<string> HandleGetWikiTags(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleGetWikiTags(Agent caller, JsonElement args, CancellationToken ct)
     {
         var wikiId = GetInt(args, "wiki_id");
-        var tags = await wikiTagService.GetTagsAsync(wikiId, ct);
+        var tags = await wikiTagService.GetTagsAsync(caller.UserId, wikiId, ct);
         var json = Serialize(tags, AppJsonSerializerContext.Default.ListString);
         return "{\"wiki_id\":" + wikiId + ",\"tags\":" + json + "}";
     }
@@ -729,7 +729,7 @@ public sealed class McpToolDispatcher(
             PermissionLevel = GetInt(args, "permission_level", 1)
         };
         var result = await shareService.ShareAsync(caller.UserId, req, ct);
-        return result is null ? Error("Share failed") : Serialize(result, AppJsonSerializerContext.Default.ShareCreated);
+        return result is null ? Error("Object not found or you don't own it") : Serialize(result, AppJsonSerializerContext.Default.ShareCreated);
     }
 
     private async Task<string> HandleRevokeShare(Agent caller, JsonElement args, CancellationToken ct)
@@ -943,7 +943,7 @@ public sealed class McpToolDispatcher(
         return Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
     }
 
-    private async Task<string> HandleAnalyzeImage(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleAnalyzeImage(Agent caller, JsonElement args, CancellationToken ct)
     {
         var req = new AnalyzeImageRequest
         {
@@ -951,7 +951,7 @@ public sealed class McpToolDispatcher(
             ImageUrl = GetString(args, "image_url"),
             Prompt = GetString(args, "prompt") ?? "Describe this image in detail"
         };
-        var result = await imageService.AnalyzeAsync(req, ct);
+        var result = await imageService.AnalyzeAsync(caller.UserId, req, ct);
         return Serialize(result, AppJsonSerializerContext.Default.AnalyzeImageResponse);
     }
 
@@ -965,18 +965,19 @@ public sealed class McpToolDispatcher(
         return "{\"images\":" + Serialize(items, AppJsonSerializerContext.Default.ListImageResponse) + "}";
     }
 
-    private async Task<string> HandleKeepImage(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleKeepImage(Agent caller, JsonElement args, CancellationToken ct)
     {
         var imageId = GetInt(args, "image_id");
-        var result = await imageService.UpdateKeepAsync(imageId, true, ct);
+        var result = await imageService.UpdateKeepAsync(caller.UserId, imageId, true, ct);
         return result is null ? Error("Image not found") : Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
     }
 
-    private async Task<string> HandleDeleteImage(JsonElement args, CancellationToken ct)
+    private async Task<string> HandleDeleteImage(Agent caller, JsonElement args, CancellationToken ct)
     {
         var imageId = GetInt(args, "image_id");
         var force = GetBool(args, "force", false);
-        var result = await imageService.DeleteAsync(imageId, force, ct);
+        var result = await imageService.DeleteAsync(caller.UserId, imageId, force, ct);
+        if (result.Detail == "Not found") return Error("Image not found");
         return Serialize(result, AppJsonSerializerContext.Default.ImageDeleteResponse);
     }
 

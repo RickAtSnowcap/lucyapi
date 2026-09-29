@@ -1,12 +1,16 @@
 -- fn_wiki_tags_get.sql
--- Returns all distinct tags for a wiki, sorted alphabetically.
+-- Returns the distinct tags used in a wiki. Requires read access (fn_access_level >= 1); otherwise no rows.
 
-CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_tags_get(p_wiki_id INT)
+CREATE OR REPLACE FUNCTION lucyapi.fn_wiki_tags_get(p_user_id INT, p_wiki_id INT)
 RETURNS TABLE(tag TEXT)
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
 BEGIN
+    IF lucyapi.fn_access_level(p_user_id, 3::SMALLINT, p_wiki_id) < 1 THEN
+        RETURN;
+    END IF;
+
     RETURN QUERY
     SELECT DISTINCT wst.tag::TEXT
       FROM public.wiki_section_tags wst

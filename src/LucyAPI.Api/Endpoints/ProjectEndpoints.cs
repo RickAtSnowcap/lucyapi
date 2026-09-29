@@ -49,7 +49,7 @@ public static class ProjectEndpoints
 
             project.DocumentUrl = documentLinks.CreateProjectUrl(projectId, caller.UserId);
 
-            var sections = await sectionService.GetSectionsAsync(projectId, ct);
+            var sections = await sectionService.GetSectionsAsync(caller.UserId, projectId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
             return Results.Ok(new ProjectDetailResponse { Project = project, Sections = tree });
         });
@@ -65,7 +65,7 @@ public static class ProjectEndpoints
             var project = await projectService.GetCompactAsync(projectId, caller.UserId, ct);
             if (project is null) return Results.NotFound();
 
-            var sections = await sectionService.GetSectionsCompactAsync(projectId, ct);
+            var sections = await sectionService.GetSectionsCompactAsync(caller.UserId, projectId, ct);
             return Results.Ok(new ProjectCompactResponse { Project = project, Sections = sections });
         });
 
@@ -87,7 +87,7 @@ public static class ProjectEndpoints
             var project = await projectService.GetAsync(projectId, u.Value, ct);
             if (project is null) return Results.NotFound();
 
-            var sections = await sectionService.GetSectionsAsync(projectId, ct);
+            var sections = await sectionService.GetSectionsAsync(u.Value, projectId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
             var html = HtmlDocumentRenderer.RenderProjectDocument(project, tree);
             return Results.Content(html, "text/html");
@@ -112,7 +112,7 @@ public static class ProjectEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await projectService.UpdateAsync(projectId, request, ct);
+            var result = await projectService.UpdateAsync(caller.UserId, projectId, request, ct);
             return result is null ? Results.NotFound() : Results.Ok(result);
         });
 
@@ -123,8 +123,8 @@ public static class ProjectEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var count = await projectService.DeleteAsync(projectId, ct);
-            return count >= 0 ? Results.Ok(new SectionsDeletedResponse { SectionsDeleted = count }) : Results.NotFound();
+            var count = await projectService.DeleteAsync(caller.UserId, projectId, ct);
+            return count is int deleted ? Results.Ok(new SectionsDeletedResponse { SectionsDeleted = deleted }) : Results.NotFound();
         });
     }
 }

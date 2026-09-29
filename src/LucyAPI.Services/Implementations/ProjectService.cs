@@ -19,11 +19,11 @@ public sealed class ProjectService(ProjectRepository repo) : IProjectService
     public Task<ProjectCreated?> CreateAsync(int userId, CreateProjectRequest request, CancellationToken ct)
         => repo.CreateAsync(userId, request.Title, request.Description, request.StatusId, ct);
 
-    public Task<ProjectCreated?> UpdateAsync(int projectId, UpdateProjectRequest request, CancellationToken ct)
-        => repo.UpdateAsync(projectId, request.Title, request.Description, request.StatusId, ct);
+    public Task<ProjectCreated?> UpdateAsync(int userId, int projectId, UpdateProjectRequest request, CancellationToken ct)
+        => repo.UpdateAsync(userId, projectId, request.Title, request.Description, request.StatusId, ct);
 
-    public Task<int> DeleteAsync(int projectId, CancellationToken ct)
-        => repo.DeleteAsync(projectId, ct);
+    public Task<int?> DeleteAsync(int userId, int projectId, CancellationToken ct)
+        => repo.DeleteAsync(userId, projectId, ct);
 
     public Task<List<ProjectStatus>> GetStatusesAsync(CancellationToken ct)
         => repo.GetStatusesAsync(ct);

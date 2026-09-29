@@ -54,12 +54,12 @@ public sealed class HintRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<List<Hint>> GetAsync(int pkid, CancellationToken ct = default)
+    public async Task<List<Hint>> GetAsync(int userId, int pkid, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_get($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_get($1, $2)", conn)
         {
-            Parameters = { new() { Value = pkid } }
+            Parameters = { new() { Value = userId }, new() { Value = pkid } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var results = new List<Hint>();
@@ -106,12 +106,12 @@ public sealed class HintRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<int> DeleteCategoryAsync(int pkid, CancellationToken ct = default)
+    public async Task<int> DeleteCategoryAsync(int userId, int pkid, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_category_delete($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_category_delete($1, $2)", conn)
         {
-            Parameters = { new() { Value = pkid } }
+            Parameters = { new() { Value = userId }, new() { Value = pkid } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return 0;
@@ -144,13 +144,14 @@ public sealed class HintRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<MutationResult?> UpdateAsync(int pkid, string? title, string? description, int? sortOrder = null, CancellationToken ct = default)
+    public async Task<MutationResult?> UpdateAsync(int userId, int pkid, string? title, string? description, int? sortOrder = null, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_update($1, $2, $3, $4)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_update($1, $2, $3, $4, $5)", conn)
         {
             Parameters =
             {
+                new() { Value = userId },
                 new() { Value = pkid },
                 new() { Value = (object?)title ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Text },
                 new() { Value = (object?)description ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Text },
@@ -166,12 +167,12 @@ public sealed class HintRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<int> DeleteAsync(int pkid, CancellationToken ct = default)
+    public async Task<int> DeleteAsync(int userId, int pkid, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_delete($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_hint_delete($1, $2)", conn)
         {
-            Parameters = { new() { Value = pkid } }
+            Parameters = { new() { Value = userId }, new() { Value = pkid } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return 0;

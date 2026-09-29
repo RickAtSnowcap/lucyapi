@@ -5,12 +5,12 @@ namespace LucyAPI.Data.Repositories;
 
 public sealed class SectionRepository(NpgsqlDataSource dataSource)
 {
-    public async Task<List<ProjectSection>> GetSectionsAsync(int projectId, CancellationToken ct = default)
+    public async Task<List<ProjectSection>> GetSectionsAsync(int userId, int projectId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_get_sections($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_project_get_sections($1, $2)", conn)
         {
-            Parameters = { new() { Value = projectId } }
+            Parameters = { new() { Value = userId }, new() { Value = projectId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var results = new List<ProjectSection>();
@@ -28,12 +28,12 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<List<ProjectSectionCompact>> GetSectionsCompactAsync(int projectId, CancellationToken ct = default)
+    public async Task<List<ProjectSectionCompact>> GetSectionsCompactAsync(int userId, int projectId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_get_all_compact($1)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_get_all_compact($1, $2)", conn)
         {
-            Parameters = { new() { Value = projectId } }
+            Parameters = { new() { Value = userId }, new() { Value = projectId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var results = new List<ProjectSectionCompact>();
@@ -49,12 +49,12 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<List<ProjectSection>> GetAsync(int projectId, int sectionId, CancellationToken ct = default)
+    public async Task<List<ProjectSection>> GetAsync(int userId, int projectId, int sectionId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_get($1, $2)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_get($1, $2, $3)", conn)
         {
-            Parameters = { new() { Value = projectId }, new() { Value = sectionId } }
+            Parameters = { new() { Value = userId }, new() { Value = projectId }, new() { Value = sectionId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         var results = new List<ProjectSection>();
@@ -73,13 +73,14 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    public async Task<SectionCreated?> CreateAsync(int projectId, int parentId, string title, string description, string? filePath, CancellationToken ct = default)
+    public async Task<SectionCreated?> CreateAsync(int userId, int projectId, int parentId, string title, string description, string? filePath, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_create($1, $2, $3, $4, $5)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_create($1, $2, $3, $4, $5, $6)", conn)
         {
             Parameters =
             {
+                new() { Value = userId },
                 new() { Value = projectId },
                 new() { Value = parentId },
                 new() { Value = title },
@@ -96,13 +97,14 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<SectionCreated?> UpdateAsync(int projectId, int sectionId, string? title, string? description, string? filePath, CancellationToken ct = default)
+    public async Task<SectionCreated?> UpdateAsync(int userId, int projectId, int sectionId, string? title, string? description, string? filePath, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_update($1, $2, $3, $4, $5)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_update($1, $2, $3, $4, $5, $6)", conn)
         {
             Parameters =
             {
+                new() { Value = userId },
                 new() { Value = projectId },
                 new() { Value = sectionId },
                 new() { Value = (object?)title ?? DBNull.Value },
@@ -119,12 +121,12 @@ public sealed class SectionRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    public async Task<int> DeleteAsync(int projectId, int sectionId, CancellationToken ct = default)
+    public async Task<int> DeleteAsync(int userId, int projectId, int sectionId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_delete($1, $2)", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_section_delete($1, $2, $3)", conn)
         {
-            Parameters = { new() { Value = projectId }, new() { Value = sectionId } }
+            Parameters = { new() { Value = userId }, new() { Value = projectId }, new() { Value = sectionId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return 0;

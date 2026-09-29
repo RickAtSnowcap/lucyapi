@@ -1,13 +1,17 @@
 -- fn_section_get_all_compact.sql
--- Returns all sections for a project with titles only (no description, no file_path).
--- Flat list ordered by section_id ascending (natural creation order).
+-- Returns section ids/parents/titles for a project (no descriptions).
+-- Requires read access (fn_access_level >= 1); otherwise returns no rows.
 
-CREATE OR REPLACE FUNCTION lucyapi.fn_section_get_all_compact(p_project_id INT)
+CREATE OR REPLACE FUNCTION lucyapi.fn_section_get_all_compact(p_user_id INT, p_project_id INT)
 RETURNS TABLE(section_id INT, parent_id INT, title TEXT)
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
 BEGIN
+    IF lucyapi.fn_access_level(p_user_id, 1::SMALLINT, p_project_id) < 1 THEN
+        RETURN;
+    END IF;
+
     RETURN QUERY
     SELECT ps.section_id,
            ps.parent_id,

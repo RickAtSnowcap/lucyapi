@@ -47,6 +47,7 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 
 -- 4. Functions
 \echo '--- Functions ---'
+\i functions/fn_access_level.sql
 \i functions/fn_agent_get_by_api_key.sql
 \i functions/fn_agent_get_by_name.sql
 \i functions/fn_memory_get_all.sql
