@@ -41,14 +41,25 @@ public sealed class JwtTokenService
         var parts = token.Split('.');
         if (parts.Length != 3) return null;
 
-        var signatureInput = $"{parts[0]}.{parts[1]}";
-        var expectedSignature = ComputeSignature(Encoding.UTF8.GetBytes(signatureInput));
-        if (parts[2] != expectedSignature) return null;
+        // Only tokens this service issues: our fixed HS256 header, and a signature compared in constant time
+        if (parts[0] != HeaderBase64) return null;
+        var givenSignature = Base64UrlDecode(parts[2]);
+        if (givenSignature is null) return null;
+        var expectedSignature = HMACSHA256.HashData(_signingKey, Encoding.UTF8.GetBytes($"{parts[0]}.{parts[1]}"));
+        if (!CryptographicOperations.FixedTimeEquals(givenSignature, expectedSignature)) return null;
 
         var payloadJson = Base64UrlDecode(parts[1]);
         if (payloadJson is null) return null;
 
-        var payload = JsonSerializer.Deserialize(payloadJson, JwtSerializerContext.Default.JwtPayload);
+        JwtPayload? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize(payloadJson, JwtSerializerContext.Default.JwtPayload);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
         if (payload is null) return null;
 
         if (payload.Exp < DateTimeOffset.UtcNow.ToUnixTimeSeconds())

@@ -143,11 +143,16 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 // --- CORS ---
+// Only LucyAdmin calls LucyAPI from a browser. Other origins can be added via Cors:AllowedOrigins (e.g. the Vite dev server).
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").GetChildren()
+    .Select(c => c.Value).OfType<string>().ToArray();
+if (corsOrigins.Length == 0)
+    corsOrigins = ["https://admin.snowcapsystems.com"];
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins(corsOrigins)
               .AllowAnyMethod()
               .AllowAnyHeader();
     });
