@@ -37,28 +37,46 @@ public sealed class McpToolDispatcher(
     };
 
     private string? _toolListCache;
+    private string? _connectorToolListCache;
+
+    // True while dispatching for an OAuth-bound agent (/mcp/connector): the token names exactly one
+    // agent, so agent_name may not switch to another agent of the same user.
+    private static readonly AsyncLocal<bool> s_boundToAgent = new();
 
     // ---------------------------------------------------------------
     //  Tool list (cached JSON for tools/list response)
     // ---------------------------------------------------------------
-    public string GetToolListJson()
+    public string GetToolListJson(bool forConnector = false)
     {
-        return _toolListCache ??= BuildToolListJson();
+        return forConnector
+            ? _connectorToolListCache ??= BuildToolListJson(includeAgentKey: false)
+            : _toolListCache ??= BuildToolListJson(includeAgentKey: true);
     }
 
     // ---------------------------------------------------------------
     //  Dispatch
     // ---------------------------------------------------------------
-    public async Task<string> DispatchAsync(string toolName, JsonElement args, CancellationToken ct)
+    public async Task<string> DispatchAsync(string toolName, JsonElement args, CancellationToken ct, Agent? boundAgent = null)
     {
-        // Auth: extract agent_key, resolve caller
-        var agentKey = GetString(args, "agent_key");
-        if (string.IsNullOrEmpty(agentKey))
-            return Error("agent_key is required for authentication");
+        Agent? caller;
+        if (boundAgent is not null)
+        {
+            // OAuth connector: identity comes from the bearer token; agent_key is not used.
+            caller = boundAgent;
+            s_boundToAgent.Value = true;
+        }
+        else
+        {
+            // Auth: extract agent_key, resolve caller
+            s_boundToAgent.Value = false;
+            var agentKey = GetString(args, "agent_key");
+            if (string.IsNullOrEmpty(agentKey))
+                return Error("agent_key is required for authentication");
 
-        var caller = await agentService.GetByApiKeyAsync(agentKey, ct);
-        if (caller is null)
-            return Error("Invalid agent_key — agent not found");
+            caller = await agentService.GetByApiKeyAsync(agentKey, ct);
+            if (caller is null)
+                return Error("Invalid agent_key — agent not found");
+        }
 
         return toolName switch
         {
@@ -869,7 +887,9 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleCreateHandoff(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        // agent_name here is the RECIPIENT — sending work to another agent is not acting as it,
+        // so an OAuth-bound agent may address any agent of the same user.
+        var agentId = await ResolveRecipientAgentId(caller, args, ct);
         if (agentId < 0) return Error("Agent not found");
         var req = new CreateHandoffRequest
         {
@@ -1052,6 +1072,17 @@ public sealed class McpToolDispatcher(
     {
         var agentName = GetString(args, "agent_name");
         if (string.IsNullOrEmpty(agentName)) return caller.AgentId;
+        if (s_boundToAgent.Value)
+            return string.Equals(agentName, caller.AgentName, StringComparison.OrdinalIgnoreCase) ? caller.AgentId : -1;
+        var target = await agentService.GetByNameAsync(agentName, ct);
+        if (target is null || target.UserId != caller.UserId) return -1;
+        return target.AgentId;
+    }
+
+    private async Task<int> ResolveRecipientAgentId(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentName = GetString(args, "agent_name");
+        if (string.IsNullOrEmpty(agentName)) return caller.AgentId;
         var target = await agentService.GetByNameAsync(agentName, ct);
         if (target is null || target.UserId != caller.UserId) return -1;
         return target.AgentId;
@@ -1061,6 +1092,9 @@ public sealed class McpToolDispatcher(
     {
         var agentName = GetString(args, "agent_name");
         if (string.IsNullOrEmpty(agentName)) return (caller.AgentId, caller.AgentName);
+        if (s_boundToAgent.Value)
+            return string.Equals(agentName, caller.AgentName, StringComparison.OrdinalIgnoreCase)
+                ? (caller.AgentId, caller.AgentName) : (-1, "");
         var target = await agentService.GetByNameAsync(agentName, ct);
         if (target is null || target.UserId != caller.UserId) return (-1, "");
         return (target.AgentId, agentName);
@@ -1131,7 +1165,7 @@ public sealed class McpToolDispatcher(
     //  Tool Definitions (82 tools)
     // ===============================================================
 
-    private static string BuildToolListJson()
+    private static string BuildToolListJson(bool includeAgentKey)
     {
         // Reusable schema fragments
         const string _K = "\"agent_key\":{\"type\":\"string\",\"description\":\"Your agent API key for authentication\"}";
@@ -1159,11 +1193,23 @@ public sealed class McpToolDispatcher(
             first = false;
             sb.Append("{\"name\":\"").Append(name)
               .Append("\",\"description\":\"").Append(Esc(desc))
-              .Append("\",\"inputSchema\":{\"type\":\"object\",\"properties\":{")
-              .Append(_K);
-            if (propsJson.Length > 0) sb.Append(',').Append(propsJson);
-            sb.Append("},\"required\":[\"agent_key\"");
-            if (reqJson.Length > 0) sb.Append(',').Append(reqJson);
+              .Append("\",\"inputSchema\":{\"type\":\"object\",\"properties\":{");
+            if (includeAgentKey)
+            {
+                sb.Append(_K);
+                if (propsJson.Length > 0) sb.Append(',').Append(propsJson);
+                sb.Append("},\"required\":[\"agent_key\"");
+                if (reqJson.Length > 0) sb.Append(',').Append(reqJson);
+            }
+            else
+            {
+                // Connector: the token identifies the agent — no agent_key, and agent_name is optional
+                // (it defaults to, and may only name, the bound agent).
+                sb.Append(propsJson).Append("},\"required\":[");
+                // Exception: create_handoff's agent_name is the recipient, so it stays required.
+                sb.Append(name == "create_handoff" ? reqJson : string.Join(',', reqJson.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(r => r.Trim() != "\"agent_name\"")));
+            }
             sb.Append("]}}");
         }
 

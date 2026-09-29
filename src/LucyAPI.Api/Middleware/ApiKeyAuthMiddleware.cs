@@ -9,8 +9,9 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
     // Paths that don't require authentication (exact match)
     private static readonly string[] PublicPaths = ["/health", "/time"];
 
-    // Paths that bypass auth (prefix match — MCP and admin/auth use their own auth)
-    private static readonly string[] PublicPrefixes = ["/mcp", "/admin/", "/auth/"];
+    // Paths that bypass auth (prefix match — MCP and admin/auth use their own auth;
+    // /.well-known + /oauth are the OAuth discovery/authorization server, which authenticates itself)
+    private static readonly string[] PublicPrefixes = ["/mcp", "/admin/", "/auth/", "/.well-known/", "/oauth/"];
 
     public async Task InvokeAsync(HttpContext ctx, IAgentService agentService)
     {

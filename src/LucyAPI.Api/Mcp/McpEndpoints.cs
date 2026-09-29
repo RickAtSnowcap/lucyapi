@@ -1,5 +1,8 @@
 using System.Buffers;
 using System.Text.Json;
+using LucyAPI.Api.OAuth;
+using LucyAPI.Data.Models;
+using LucyAPI.Data.Repositories;
 
 namespace LucyAPI.Api.Mcp;
 
@@ -13,9 +16,41 @@ public static class McpEndpoints
     {
         app.MapPost("/mcp/", HandlePost);
         app.MapDelete("/mcp/", () => Results.Accepted());
+
+        // OAuth connector (project #62): identical JSON-RPC surface, but EVERY request needs a bearer
+        // token; the agent comes from the token, and tools carry no agent_key. Claude only starts its
+        // OAuth flow on a real 401, so even initialize is challenged.
+        app.MapPost(OAuthSettings.ConnectorPath, HandleConnectorPost);
+        app.MapGet(OAuthSettings.ConnectorPath, HandleConnectorGet);
+        app.MapDelete(OAuthSettings.ConnectorPath, () => Results.Accepted());
     }
 
-    private static async Task HandlePost(HttpContext ctx, McpToolDispatcher dispatcher)
+    private static Task HandlePost(HttpContext ctx, McpToolDispatcher dispatcher)
+        => HandleRpc(ctx, dispatcher, boundAgent: null);
+
+    private static async Task HandleConnectorPost(HttpContext ctx, McpToolDispatcher dispatcher, OAuthRepository oauth)
+    {
+        var agent = await OAuthEndpoints.AuthenticateBearerAsync(ctx, oauth);
+        if (agent is null)
+        {
+            await OAuthEndpoints.WriteChallengeAsync(ctx, tokenPresented: ctx.Request.Headers.Authorization.Count > 0);
+            return;
+        }
+        await HandleRpc(ctx, dispatcher, agent);
+    }
+
+    // No server-initiated SSE stream: authenticated GET gets 405 (allowed by Streamable HTTP).
+    private static async Task HandleConnectorGet(HttpContext ctx, OAuthRepository oauth)
+    {
+        if (await OAuthEndpoints.AuthenticateBearerAsync(ctx, oauth) is null)
+        {
+            await OAuthEndpoints.WriteChallengeAsync(ctx, tokenPresented: ctx.Request.Headers.Authorization.Count > 0);
+            return;
+        }
+        ctx.Response.StatusCode = 405;
+    }
+
+    private static async Task HandleRpc(HttpContext ctx, McpToolDispatcher dispatcher, Agent? boundAgent)
     {
         JsonDocument doc;
         try
@@ -55,11 +90,11 @@ public static class McpEndpoints
                     break;
 
                 case "tools/list":
-                    await HandleToolsList(ctx, idProp, dispatcher);
+                    await HandleToolsList(ctx, idProp, dispatcher, boundAgent is not null);
                     break;
 
                 case "tools/call":
-                    await HandleToolCall(ctx, idProp, root, dispatcher);
+                    await HandleToolCall(ctx, idProp, root, dispatcher, boundAgent);
                     break;
 
                 default:
@@ -97,9 +132,9 @@ public static class McpEndpoints
         await ctx.Response.Body.WriteAsync(buffer.WrittenMemory, ctx.RequestAborted);
     }
 
-    private static async Task HandleToolsList(HttpContext ctx, JsonElement id, McpToolDispatcher dispatcher)
+    private static async Task HandleToolsList(HttpContext ctx, JsonElement id, McpToolDispatcher dispatcher, bool forConnector)
     {
-        var toolsJson = dispatcher.GetToolListJson();
+        var toolsJson = dispatcher.GetToolListJson(forConnector);
 
         var buffer = new ArrayBufferWriter<byte>();
         using var w = new Utf8JsonWriter(buffer);
@@ -115,7 +150,7 @@ public static class McpEndpoints
         await ctx.Response.Body.WriteAsync(buffer.WrittenMemory, ctx.RequestAborted);
     }
 
-    private static async Task HandleToolCall(HttpContext ctx, JsonElement id, JsonElement root, McpToolDispatcher dispatcher)
+    private static async Task HandleToolCall(HttpContext ctx, JsonElement id, JsonElement root, McpToolDispatcher dispatcher, Agent? boundAgent)
     {
         if (!root.TryGetProperty("params", out var paramsProp))
         {
@@ -133,7 +168,7 @@ public static class McpEndpoints
         string resultText;
         try
         {
-            resultText = await dispatcher.DispatchAsync(toolName, arguments, ctx.RequestAborted);
+            resultText = await dispatcher.DispatchAsync(toolName, arguments, ctx.RequestAborted, boundAgent);
         }
         catch (Exception ex)
         {

@@ -53,6 +53,18 @@ TO lucyapi_app;
 -- Functions
 GRANT EXECUTE ON FUNCTION lucyapi.fn_agent_get_by_api_key(TEXT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_agent_get_by_name(TEXT) TO leaddev;
+-- OAuth (project #62) — leaddev owns these objects; grants listed for completeness
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_client_upsert(TEXT, TEXT, TEXT, TEXT[]) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_client_get(TEXT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_user_for_login(TEXT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_agents_for_user(INT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_code_create(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INT, INT, TIMESTAMPTZ) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_code_consume(TEXT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_tokens_issue(UUID, TEXT, TEXT, TEXT, INT, INT, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_refresh_rotate(TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_access_resolve(TEXT, TEXT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_revoke_agent(INT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_oauth_purge_expired() TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_memory_get_all(INT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_memory_get_one(INT, INT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_memory_create(INT, TEXT, TEXT) TO leaddev;

@@ -41,6 +41,9 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i tables/wiki_section_tags.sql
 \i tables/shared_objects.sql
 \i tables/nudges.sql
+\i tables/oauth_clients.sql
+\i tables/oauth_auth_codes.sql
+\i tables/oauth_tokens.sql
 
 -- 4. Functions
 \echo '--- Functions ---'
@@ -116,6 +119,17 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_share_list_by_me.sql
 \i functions/fn_share_list_to_me.sql
 \i functions/fn_share_check_permission.sql
+\i functions/fn_oauth_client_upsert.sql
+\i functions/fn_oauth_client_get.sql
+\i functions/fn_oauth_user_for_login.sql
+\i functions/fn_oauth_agents_for_user.sql
+\i functions/fn_oauth_code_create.sql
+\i functions/fn_oauth_code_consume.sql
+\i functions/fn_oauth_tokens_issue.sql
+\i functions/fn_oauth_refresh_rotate.sql
+\i functions/fn_oauth_access_resolve.sql
+\i functions/fn_oauth_revoke_agent.sql
+\i functions/fn_oauth_purge_expired.sql
 
 -- 5. Seed data
 \echo '--- Seed Data ---'

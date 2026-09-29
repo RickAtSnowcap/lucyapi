@@ -5,6 +5,7 @@ using LucyAPI.Api.Endpoints;
 using LucyAPI.Api.Endpoints.Admin;
 using LucyAPI.Api.Mcp;
 using LucyAPI.Api.Middleware;
+using LucyAPI.Api.OAuth;
 using LucyAPI.Data.Repositories;
 using LucyAPI.Services.Implementations;
 using LucyAPI.Services.Interfaces;
@@ -54,6 +55,7 @@ builder.Services.AddSingleton<ImageRepository>();
 builder.Services.AddSingleton<UserRepository>();
 builder.Services.AddSingleton<AdminRepository>();
 builder.Services.AddSingleton<NudgeRepository>();
+builder.Services.AddSingleton<OAuthRepository>();
 
 // --- Services ---
 builder.Services.AddSingleton<IAgentService, AgentService>();
@@ -110,6 +112,9 @@ builder.Services.AddSingleton<ISaveNotesService>(new SaveNotesService(
 // --- Phase 6: MCP Server ---
 builder.Services.AddSingleton<McpToolDispatcher>();
 
+// --- LucyAPI OAuth (project #62): authorization server for the MCP connector ---
+builder.Services.AddSingleton<OAuthClientResolver>();
+
 // --- JSON (AOT source-generated, snake_case) ---
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -158,6 +163,7 @@ app.MapImageEndpoints();
 app.MapSaveEndpoints();
 app.MapNudgeEndpoints();
 app.MapMcpEndpoints();
+app.MapOAuthEndpoints();
 
 // --- Admin Endpoints (JWT-scoped) ---
 app.MapAdminAuthEndpoints();
