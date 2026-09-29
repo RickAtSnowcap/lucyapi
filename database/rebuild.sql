@@ -55,6 +55,7 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_memory_create.sql
 \i functions/fn_memory_update.sql
 \i functions/fn_memory_delete.sql
+\i functions/fn_preference_get_all.sql
 \i functions/fn_preference_get_top_level.sql
 \i functions/fn_preference_get_branch.sql
 \i functions/fn_preference_create.sql
@@ -111,6 +112,14 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_hint_create.sql
 \i functions/fn_hint_update.sql
 \i functions/fn_hint_delete.sql
+\i functions/fn_hint_category_delete.sql
+\i functions/fn_image_insert.sql
+\i functions/fn_image_get.sql
+\i functions/fn_image_list.sql
+\i functions/fn_image_update_keep.sql
+\i functions/fn_image_delete.sql
+\i functions/fn_image_get_unkept.sql
+\i functions/fn_image_delete_batch.sql
 \i functions/fn_secret_list.sql
 \i functions/fn_secret_get.sql
 \i functions/fn_secret_set.sql
