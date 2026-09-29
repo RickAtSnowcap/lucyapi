@@ -113,9 +113,6 @@ namespace LucyAPI.Api;
 [JsonSerializable(typeof(WikiDetailResponse))]
 [JsonSerializable(typeof(WikiTagListResponse))]
 [JsonSerializable(typeof(TagSearchResponse))]
-[JsonSerializable(typeof(BootResponse))]
-[JsonSerializable(typeof(BootEndpointMap))]
-[JsonSerializable(typeof(BootSaveEndpoint))]
 // Project 38: Nudges
 [JsonSerializable(typeof(Nudge))]
 [JsonSerializable(typeof(NudgeCreated))]
@@ -152,7 +149,6 @@ namespace LucyAPI.Api;
 [JsonSerializable(typeof(KeepImageRequest))]
 [JsonSerializable(typeof(List<ImageResponse>))]
 // Phase 5: Save Notes
-[JsonSerializable(typeof(SaveNotesRequest))]
 [JsonSerializable(typeof(SaveNotesResponse))]
 // Admin: Auth
 [JsonSerializable(typeof(UserContext))]

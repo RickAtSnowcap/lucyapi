@@ -74,9 +74,11 @@ public sealed class SaveNotesService : ISaveNotesService
 
             await client.SendMailAsync(message);
         }
-        catch
+        catch (Exception ex)
         {
-            // Fire and forget — no one to report to
+            // Fire and forget — the caller already got "accepted", so the journal is the only place a failure shows up
+            try { Console.Error.WriteLine($"save_notes: email '{filename}' failed: {ex.GetType().Name}: {ex.Message}"); }
+            catch { /* logging must never throw */ }
         }
     }
 }

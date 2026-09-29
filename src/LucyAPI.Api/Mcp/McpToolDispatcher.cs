@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using LucyAPI.Api.Auth;
 using LucyAPI.Data.Models;
 using LucyAPI.Services.DTOs;
 using LucyAPI.Services.Interfaces;
@@ -28,7 +29,7 @@ public sealed class McpToolDispatcher(
     IGoogleDocsService googleDocsService,
     IImageService imageService,
     ISaveNotesService saveNotesService,
-    IConfiguration configuration)
+    DocumentLinkSigner documentLinks)
 {
     private static readonly JsonSerializerOptions s_snakeCase = new()
     {
@@ -425,12 +426,7 @@ public sealed class McpToolDispatcher(
         var project = await projectService.GetAsync(projectId, caller.UserId, ct);
         if (project is null) return Error("Project not found");
 
-        var agentKey = GetString(args, "agent_key");
-        if (!string.IsNullOrEmpty(agentKey))
-        {
-            var baseUrl = configuration["Images:BaseUrl"] ?? "https://lucyapi.snowcapsystems.com";
-            project.DocumentUrl = $"{baseUrl}/projects/{projectId}/document?agent_key={agentKey}";
-        }
+        project.DocumentUrl = documentLinks.CreateProjectUrl(projectId, caller.UserId);
 
         var sections = await sectionService.GetSectionsAsync(projectId, ct);
         var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);

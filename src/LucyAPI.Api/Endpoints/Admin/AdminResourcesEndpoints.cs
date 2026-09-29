@@ -43,8 +43,7 @@ public static class AdminResourcesEndpoints
             HttpContext ctx,
             IProjectService projectService,
             ISectionService sectionService,
-            IAgentService agentService,
-            IConfiguration config,
+            DocumentLinkSigner documentLinks,
             CancellationToken ct) =>
         {
             var caller = ctx.GetUserContext();
@@ -54,12 +53,7 @@ public static class AdminResourcesEndpoints
             var sections = await sectionService.GetSectionsAsync(projectId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
 
-            var agentKey = await agentService.GetFirstKeyByUserIdAsync(caller.UserId, ct);
-            if (agentKey is not null)
-            {
-                var baseUrl = config["Images:BaseUrl"] ?? "";
-                project.DocumentUrl = $"{baseUrl}/projects/{projectId}/document?agent_key={agentKey}";
-            }
+            project.DocumentUrl = documentLinks.CreateProjectUrl(projectId, caller.UserId);
 
             return Results.Ok(new ProjectDetailResponse { Project = project, Sections = tree });
         });

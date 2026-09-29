@@ -1,3 +1,4 @@
+using LucyAPI.Api.Auth;
 using LucyAPI.Api.Extensions;
 using LucyAPI.Api.Models;
 using LucyAPI.Services.DTOs;
@@ -8,6 +9,11 @@ namespace LucyAPI.Api.Endpoints;
 
 public static class ProjectEndpoints
 {
+    private const string DocumentLinkExpiredHtml =
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        + "<title>Link expired</title></head><body style=\"font-family:Lexend,system-ui,sans-serif;margin:2rem;\">"
+        + "<h1>This link has expired or isn't valid</h1><p>Project links last 24 hours. Ask for a fresh one.</p></body></html>";
+
     public static void MapProjectEndpoints(this WebApplication app)
     {
         app.MapGet("/project-statuses", async (
@@ -34,20 +40,14 @@ public static class ProjectEndpoints
             HttpContext ctx,
             IProjectService projectService,
             ISectionService sectionService,
-            IConfiguration config,
+            DocumentLinkSigner documentLinks,
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
             var project = await projectService.GetAsync(projectId, caller.UserId, ct);
             if (project is null) return Results.NotFound();
 
-            var agentKey = ctx.Request.Headers["X-Api-Key"].FirstOrDefault()
-                           ?? ctx.Request.Query["agent_key"].FirstOrDefault();
-            if (agentKey is not null)
-            {
-                var baseUrl = config["Images:BaseUrl"] ?? "https://lucyapi.snowcapsystems.com";
-                project.DocumentUrl = $"{baseUrl}/projects/{projectId}/document?agent_key={agentKey}";
-            }
+            project.DocumentUrl = documentLinks.CreateProjectUrl(projectId, caller.UserId);
 
             var sections = await sectionService.GetSectionsAsync(projectId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
@@ -69,15 +69,22 @@ public static class ProjectEndpoints
             return Results.Ok(new ProjectCompactResponse { Project = project, Sections = sections });
         });
 
-        app.MapGet("/projects/{projectId:int}/document", async (
+        // Public (see ApiKeyAuthMiddleware): authenticated by the 24h signature from DocumentLinkSigner,
+        // so the link works in a phone browser with no credential in the URL.
+        app.MapGet("/doc/projects/{projectId:int}", async (
             int projectId,
-            HttpContext ctx,
+            int? u,
+            long? exp,
+            string? sig,
             IProjectService projectService,
             ISectionService sectionService,
+            DocumentLinkSigner documentLinks,
             CancellationToken ct) =>
         {
-            var caller = ctx.GetAgentContext();
-            var project = await projectService.GetAsync(projectId, caller.UserId, ct);
+            if (u is null || exp is null || !documentLinks.IsValid(projectId, u.Value, exp.Value, sig))
+                return Results.Content(DocumentLinkExpiredHtml, "text/html", statusCode: 403);
+
+            var project = await projectService.GetAsync(projectId, u.Value, ct);
             if (project is null) return Results.NotFound();
 
             var sections = await sectionService.GetSectionsAsync(projectId, ct);

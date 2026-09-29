@@ -102,6 +102,17 @@ builder.Services.AddSingleton<IImageService>(sp =>
     new ImageService(sp.GetRequiredService<ImageRepository>(), sp.GetRequiredService<IGeminiService>(),
         imagesDir, baseUrl));
 
+// --- Signed project document links (24h, no credential in the URL) ---
+var documentLinkKeyB64 = builder.Environment.IsDevelopment()
+    ? Environment.GetEnvironmentVariable("LUCYAPI_DOCLINK_KEY")
+        ?? throw new InvalidOperationException("Set LUCYAPI_DOCLINK_KEY (base64, 32 bytes) for development")
+    : SuitcaseCrypt.Decrypt(builder.Configuration["Suitcase:DocumentLinkKey"]
+        ?? throw new InvalidOperationException("Suitcase:DocumentLinkKey not configured"), encryptionKey);
+var documentLinkKey = Convert.FromBase64String(documentLinkKeyB64);
+if (documentLinkKey.Length != 32)
+    throw new InvalidOperationException("DocumentLinkKey must be 32 bytes");
+builder.Services.AddSingleton(new DocumentLinkSigner(documentLinkKey, baseUrl));
+
 builder.Services.AddSingleton<ISaveNotesService>(new SaveNotesService(
     smtpHost: builder.Configuration["SmtpHost"] ?? "smtp.forwardemail.net",
     smtpPort: int.TryParse(builder.Configuration["SmtpPort"], out var port) ? port : 465,
@@ -143,7 +154,6 @@ app.UseMiddleware<ApiKeyAuthMiddleware>();
 // --- Endpoints ---
 app.MapHealthEndpoints();
 app.MapTimeEndpoints();
-app.MapBootEndpoints();
 app.MapContextEndpoints();
 app.MapAlwaysLoadEndpoints();
 app.MapMemoryEndpoints();
@@ -160,7 +170,6 @@ app.MapSecretEndpoints();
 app.MapShareEndpoints();
 app.MapGoogleDocsEndpoints();
 app.MapImageEndpoints();
-app.MapSaveEndpoints();
 app.MapNudgeEndpoints();
 app.MapMcpEndpoints();
 app.MapOAuthEndpoints();
