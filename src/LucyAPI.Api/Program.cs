@@ -96,8 +96,16 @@ builder.Services.AddSingleton(new JwtTokenService(SealedSetting("JwtSigningKey",
 builder.Services.AddSingleton<ISecretService>(sp =>
     new SecretService(sp.GetRequiredService<SecretRepository>(), encryptionKey));
 
+// Explicit allowlist: user id -> user id whose Google credentials they may use (server config only).
+var googleUseCredentialsOf = new Dictionary<int, int>();
+foreach (var entry in builder.Configuration.GetSection("GoogleDocs:UseCredentialsOf").GetChildren())
+{
+    if (!int.TryParse(entry.Key, out var fromUser) || !int.TryParse(entry.Value, out var toUser))
+        throw new InvalidOperationException($"GoogleDocs:UseCredentialsOf entry '{entry.Key}' must map a user id to a user id");
+    googleUseCredentialsOf[fromUser] = toUser;
+}
 builder.Services.AddSingleton<IGoogleDocsService>(sp =>
-    new GoogleDocsService(sp.GetRequiredService<ISecretService>()));
+    new GoogleDocsService(sp.GetRequiredService<ISecretService>(), googleUseCredentialsOf));
 
 var geminiApiKey = SealedSetting("GeminiApiKey", "GEMINI_API_KEY");
 builder.Services.AddSingleton<IGeminiService>(new GeminiService(geminiApiKey));
