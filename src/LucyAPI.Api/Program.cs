@@ -76,16 +76,22 @@ builder.Services.AddSingleton<IShareService, ShareService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<INudgeService, NudgeService>();
 
-// --- JWT Auth ---
-var jwtSigningKey = builder.Configuration["Jwt:SigningKey"]
-    ?? Environment.GetEnvironmentVariable("LUCYAPI_JWT_SECRET")
-    ?? throw new InvalidOperationException("JWT signing key not configured (set Jwt:SigningKey or LUCYAPI_JWT_SECRET)");
-builder.Services.AddSingleton(new JwtTokenService(jwtSigningKey));
-
-// --- Phase 5: Google Docs, Images, Save Notes ---
 var encryptionKey = builder.Environment.IsDevelopment()
     ? Convert.FromBase64String(Environment.GetEnvironmentVariable("LUCYAPI_ENCRYPTION_KEY") ?? "")
     : SuitcaseCrypt.LoadKey();
+
+// Secrets live TPM-sealed in the Suitcase section (preference #33); development reads plain env vars instead.
+string SealedSetting(string suitcaseName, string devEnvVar) =>
+    builder.Environment.IsDevelopment()
+        ? Environment.GetEnvironmentVariable(devEnvVar)
+            ?? throw new InvalidOperationException($"Set {devEnvVar} for development")
+        : SuitcaseCrypt.Decrypt(builder.Configuration[$"Suitcase:{suitcaseName}"]
+            ?? throw new InvalidOperationException($"Suitcase:{suitcaseName} not configured"), encryptionKey);
+
+// --- JWT Auth ---
+builder.Services.AddSingleton(new JwtTokenService(SealedSetting("JwtSigningKey", "LUCYAPI_JWT_SECRET")));
+
+// --- Phase 5: Google Docs, Images, Save Notes ---
 
 builder.Services.AddSingleton<ISecretService>(sp =>
     new SecretService(sp.GetRequiredService<SecretRepository>(), encryptionKey));
@@ -93,7 +99,7 @@ builder.Services.AddSingleton<ISecretService>(sp =>
 builder.Services.AddSingleton<IGoogleDocsService>(sp =>
     new GoogleDocsService(sp.GetRequiredService<ISecretService>()));
 
-var geminiApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
+var geminiApiKey = SealedSetting("GeminiApiKey", "GEMINI_API_KEY");
 builder.Services.AddSingleton<IGeminiService>(new GeminiService(geminiApiKey));
 
 var imagesDir = builder.Configuration["Images:Directory"] ?? "/opt/lucyapi/output/images";
@@ -103,12 +109,7 @@ builder.Services.AddSingleton<IImageService>(sp =>
         imagesDir, baseUrl));
 
 // --- Signed project document links (24h, no credential in the URL) ---
-var documentLinkKeyB64 = builder.Environment.IsDevelopment()
-    ? Environment.GetEnvironmentVariable("LUCYAPI_DOCLINK_KEY")
-        ?? throw new InvalidOperationException("Set LUCYAPI_DOCLINK_KEY (base64, 32 bytes) for development")
-    : SuitcaseCrypt.Decrypt(builder.Configuration["Suitcase:DocumentLinkKey"]
-        ?? throw new InvalidOperationException("Suitcase:DocumentLinkKey not configured"), encryptionKey);
-var documentLinkKey = Convert.FromBase64String(documentLinkKeyB64);
+var documentLinkKey = Convert.FromBase64String(SealedSetting("DocumentLinkKey", "LUCYAPI_DOCLINK_KEY"));
 if (documentLinkKey.Length != 32)
     throw new InvalidOperationException("DocumentLinkKey must be 32 bytes");
 builder.Services.AddSingleton(new DocumentLinkSigner(documentLinkKey, baseUrl));
@@ -117,7 +118,7 @@ builder.Services.AddSingleton<ISaveNotesService>(new SaveNotesService(
     smtpHost: builder.Configuration["SmtpHost"] ?? "smtp.forwardemail.net",
     smtpPort: int.TryParse(builder.Configuration["SmtpPort"], out var port) ? port : 465,
     smtpUser: builder.Configuration["SmtpUser"] ?? "rick@snowcapsystems.com",
-    smtpPass: Environment.GetEnvironmentVariable("LUCYAPI_SMTP_PASS") ?? "",
+    smtpPass: SealedSetting("SmtpPassword", "LUCYAPI_SMTP_PASS"),
     sendTo: builder.Configuration["SmtpSendTo"] ?? "rick@snowcapsystems.com"));
 
 // --- Phase 6: MCP Server ---
