@@ -123,7 +123,7 @@ public static class OAuthEndpoints
         // redirect_uri problems must NOT redirect (it could be an attacker's URL): show an error page.
         var redirectUri = q["redirect_uri"].ToString();
         if (string.IsNullOrEmpty(redirectUri) && client.RedirectUris.Length == 1) redirectUri = client.RedirectUris[0];
-        if (!client.RedirectUris.Contains(redirectUri, StringComparer.Ordinal) || !OAuthSettings.IsAllowedRedirectUri(redirectUri))
+        if (!OAuthSettings.RedirectUriMatches(client.RedirectUris, redirectUri) || !OAuthSettings.IsAllowedRedirectUri(redirectUri))
             return AuthorizePage.Error("This client's redirect address isn't allowed.");
 
         var state = q["state"].ToString();

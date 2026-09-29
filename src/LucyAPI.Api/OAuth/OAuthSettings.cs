@@ -46,6 +46,31 @@ public static class OAuthSettings
             && u.AbsolutePath == "/callback";
     }
 
+    /// <summary>
+    /// Does the requested redirect_uri match one the client registered? Exact match, or — for loopback
+    /// redirects — same scheme, host and path with ANY port (RFC 8252 §7.3: native apps such as Claude
+    /// Code listen on an ephemeral port, so their metadata registers "http://localhost/callback" and they
+    /// arrive with "http://localhost:54321/callback"). The allowlist check still applies separately.
+    /// </summary>
+    public static bool RedirectUriMatches(IEnumerable<string> registered, string? requested)
+    {
+        if (string.IsNullOrEmpty(requested)) return false;
+        if (!Uri.TryCreate(requested, UriKind.Absolute, out var req)) return false;
+        foreach (var r in registered)
+        {
+            if (string.Equals(r, requested, StringComparison.Ordinal)) return true;
+            if (!Uri.TryCreate(r, UriKind.Absolute, out var reg)) continue;
+            var loopback = reg.Scheme == Uri.UriSchemeHttp && (reg.Host == "localhost" || reg.Host == "127.0.0.1");
+            if (loopback
+                && req.Scheme == reg.Scheme
+                && req.Host == reg.Host
+                && req.AbsolutePath == reg.AbsolutePath
+                && string.IsNullOrEmpty(req.Query) && string.IsNullOrEmpty(req.Fragment))
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>The resource indicator must name this connector (trailing slash tolerated).</summary>
     public static bool IsOurResource(string? resource)
         => resource is not null && resource.TrimEnd('/') == Resource;
