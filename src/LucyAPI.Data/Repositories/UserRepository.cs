@@ -8,8 +8,7 @@ public sealed class UserRepository(NpgsqlDataSource dataSource)
     public async Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand(
-            "SELECT user_id, name, username, password_hash, email FROM users WHERE username = $1", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_user_get_by_username($1)", conn)
         {
             Parameters = { new() { Value = username } }
         };
@@ -28,8 +27,7 @@ public sealed class UserRepository(NpgsqlDataSource dataSource)
     public async Task<User?> GetByIdAsync(int userId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand(
-            "SELECT user_id, name, username, password_hash, email FROM users WHERE user_id = $1", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_user_get($1)", conn)
         {
             Parameters = { new() { Value = userId } }
         };
@@ -48,8 +46,7 @@ public sealed class UserRepository(NpgsqlDataSource dataSource)
     public async Task<List<User>> ListOtherUsersAsync(int excludeUserId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand(
-            "SELECT user_id, name, username, password_hash, email FROM users WHERE user_id != $1 ORDER BY name", conn)
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_user_list_others($1)", conn)
         {
             Parameters = { new() { Value = excludeUserId } }
         };
@@ -57,13 +54,13 @@ public sealed class UserRepository(NpgsqlDataSource dataSource)
         var results = new List<User>();
         while (await reader.ReadAsync(ct))
         {
+            // fn_user_list_others never returns password hashes
             results.Add(new User
             {
                 UserId = reader.GetInt32(0),
                 Name = reader.GetString(1),
                 Username = reader.GetString(2),
-                PasswordHash = reader.IsDBNull(3) ? null : reader.GetString(3),
-                Email = reader.IsDBNull(4) ? null : reader.GetString(4)
+                Email = reader.IsDBNull(3) ? null : reader.GetString(3)
             });
         }
         return results;
@@ -72,11 +69,10 @@ public sealed class UserRepository(NpgsqlDataSource dataSource)
     public async Task<bool> UpdatePasswordHashAsync(int userId, string passwordHash, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand(
-            "UPDATE users SET password_hash = $1 WHERE user_id = $2", conn)
+        await using var cmd = new NpgsqlCommand("SELECT lucyapi.fn_user_set_password_hash($1, $2)", conn)
         {
-            Parameters = { new() { Value = passwordHash }, new() { Value = userId } }
+            Parameters = { new() { Value = userId }, new() { Value = passwordHash } }
         };
-        return await cmd.ExecuteNonQueryAsync(ct) > 0;
+        return await cmd.ExecuteScalarAsync(ct) is true;
     }
 }

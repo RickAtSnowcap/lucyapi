@@ -64,6 +64,11 @@ TO leaddev;
 
 -- Functions
 GRANT EXECUTE ON FUNCTION lucyapi.fn_access_level(INTEGER, SMALLINT, INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_agent_list(INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_dashboard_stats(INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_session_list_recent(INTEGER, INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_share_list_by_me(INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_share_list_to_me(INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_agent_get_by_api_key(TEXT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_agent_get_by_name(TEXT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_always_load_create(INTEGER, INTEGER, TEXT, TEXT) TO leaddev;
@@ -144,6 +149,11 @@ GRANT EXECUTE ON FUNCTION lucyapi.fn_share_create(INTEGER, INTEGER, SMALLINT, IN
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_list_by_me(INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_list_to_me(INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_revoke(INTEGER, INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_share_update_permission(INTEGER, INTEGER, SMALLINT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_user_get(INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_user_get_by_username(TEXT) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_user_list_others(INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_user_set_password_hash(INTEGER, TEXT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_wiki_create(INTEGER, TEXT, TEXT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_wiki_delete(INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_wiki_get(INTEGER, INTEGER) TO leaddev;

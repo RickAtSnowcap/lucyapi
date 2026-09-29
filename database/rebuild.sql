@@ -140,6 +140,16 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_oauth_access_resolve.sql
 \i functions/fn_oauth_revoke_agent.sql
 \i functions/fn_oauth_purge_expired.sql
+\i functions/fn_user_get_by_username.sql
+\i functions/fn_user_get.sql
+\i functions/fn_user_list_others.sql
+\i functions/fn_user_set_password_hash.sql
+\i functions/fn_admin_agent_list.sql
+\i functions/fn_admin_share_list_by_me.sql
+\i functions/fn_admin_share_list_to_me.sql
+\i functions/fn_admin_dashboard_stats.sql
+\i functions/fn_admin_session_list_recent.sql
+\i functions/fn_share_update_permission.sql
 
 -- 5. Seed data
 \echo '--- Seed Data ---'

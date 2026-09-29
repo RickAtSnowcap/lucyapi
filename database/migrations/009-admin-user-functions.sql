@@ -1,0 +1,12 @@
+-- 009-admin-user-functions.sql
+-- Moves the last inline SQL (UserRepository, AdminRepository) into stored functions (preference #27).
+-- New: fn_user_get_by_username, fn_user_get, fn_user_list_others (never returns password hashes),
+-- fn_user_set_password_hash, fn_admin_agent_list, fn_admin_share_list_by_me, fn_admin_share_list_to_me,
+-- fn_admin_dashboard_stats, fn_admin_session_list_recent, fn_share_update_permission.
+-- The admin secrets list reuses the existing fn_secret_list. Verified equivalent to the old inline queries
+-- (row-for-row, both users) in a rolled-back transaction before deploy.
+--
+-- Apply (owned by leaddev — hint #189), then deploy the matching binary:
+--   ( echo 'SET ROLE leaddev;'; echo 'BEGIN;'; cat functions/fn_user_{get_by_username,get,list_others,set_password_hash}.sql \
+--       functions/fn_admin_{agent_list,share_list_by_me,share_list_to_me,dashboard_stats,session_list_recent}.sql \
+--       functions/fn_share_update_permission.sql; echo 'COMMIT;' ) | sudo -u postgres psql -d lucyapi -v ON_ERROR_STOP=1
