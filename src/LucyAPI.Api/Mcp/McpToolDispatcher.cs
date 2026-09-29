@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using LucyAPI.Api.Auth;
+using LucyAPI.Api.Middleware;
 using LucyAPI.Data.Models;
 using LucyAPI.Services.DTOs;
 using LucyAPI.Services.Interfaces;
@@ -75,6 +76,7 @@ public sealed class McpToolDispatcher(
                 return Error("agent_key is required for authentication");
 
             caller = await agentService.GetByApiKeyAsync(agentKey, ct);
+            KeyUsageLog.Record("mcp-legacy", caller is null ? "invalid" : "ok", caller?.AgentName, toolName);
             if (caller is null)
                 return Error("Invalid agent_key — agent not found");
         }

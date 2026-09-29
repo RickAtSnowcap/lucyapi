@@ -37,14 +37,20 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         }
 
         // Check X-Api-Key header first, then agent_key query param
+        var channel = "rest-header";
         string? apiKey = ctx.Request.Headers["X-Api-Key"].FirstOrDefault();
         if (string.IsNullOrEmpty(apiKey))
         {
             apiKey = ctx.Request.Query["agent_key"].FirstOrDefault();
+            channel = "rest-query";
         }
+
+        var target = $"{ctx.Request.Method} {path}";
+        var from = KeyUsageLog.ClientAddress(ctx);
 
         if (string.IsNullOrEmpty(apiKey))
         {
+            KeyUsageLog.Record("rest", "missing", null, target, from);
             ctx.Response.StatusCode = 401;
             await ctx.Response.WriteAsJsonAsync(
                 new ErrorResponse { Error = "Missing API key", Detail = "Provide X-Api-Key header or agent_key query parameter" },
@@ -53,6 +59,7 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         }
 
         var agent = await agentService.GetByApiKeyAsync(apiKey, ctx.RequestAborted);
+        KeyUsageLog.Record(channel, agent is null ? "invalid" : "ok", agent?.AgentName, target, from);
         if (agent is null)
         {
             ctx.Response.StatusCode = 401;
