@@ -77,7 +77,7 @@ public sealed class GeminiService : IGeminiService
     public async Task<GeminiAnalysisResult> AnalyzeImageAsync(byte[] imageBytes, string prompt,
         CancellationToken ct)
     {
-        const string modelStr = "gemini-2.0-flash";
+        const string modelStr = "gemini-flash-latest";   // alias tracks the current stable Flash (gemini-2.0-flash was retired → 404)
         var b64 = Convert.ToBase64String(imageBytes);
 
         var json = "{\"contents\":[{\"parts\":["

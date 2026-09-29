@@ -1,7 +1,6 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using LucyAPI.Data.Repositories;
+using LucyAPI.Services.Utilities;
 
 namespace LucyAPI.Api.OAuth;
 
@@ -19,28 +18,7 @@ public sealed class OAuthClientResolver(OAuthRepository repo)
     private static readonly TimeSpan CacheFor = TimeSpan.FromHours(24);
     private const int MaxDocumentBytes = 64 * 1024;
 
-    private static readonly HttpClient Http = new(new SocketsHttpHandler
-    {
-        AllowAutoRedirect = false,
-        ConnectTimeout = TimeSpan.FromSeconds(4),
-        ConnectCallback = async (context, ct) =>
-        {
-            var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
-            var target = addresses.FirstOrDefault(a => !IsPrivate(a))
-                ?? throw new HttpRequestException("client metadata host resolves only to non-public addresses");
-            var socket = new Socket(target.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-            try
-            {
-                await socket.ConnectAsync(new IPEndPoint(target, context.DnsEndPoint.Port), ct);
-                return new NetworkStream(socket, ownsSocket: true);
-            }
-            catch
-            {
-                socket.Dispose();
-                throw;
-            }
-        }
-    })
+    private static readonly HttpClient Http = new(PublicHttp.CreateHandler(allowRedirects: false, TimeSpan.FromSeconds(4)))
     {
         Timeout = TimeSpan.FromSeconds(5)
     };
@@ -103,23 +81,5 @@ public sealed class OAuthClientResolver(OAuthRepository repo)
         {
             return null;
         }
-    }
-
-    private static bool IsPrivate(IPAddress ip)
-    {
-        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
-        if (IPAddress.IsLoopback(ip)) return true;
-        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-            return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6UniqueLocal || ip.Equals(IPAddress.IPv6None);
-        var b = ip.GetAddressBytes();
-        return b[0] switch
-        {
-            0 or 10 or 127 => true,
-            100 => b[1] >= 64 && b[1] <= 127,             // CGNAT 100.64/10
-            169 => b[1] == 254,                           // link-local
-            172 => b[1] >= 16 && b[1] <= 31,
-            192 => b[1] == 168 || (b[1] == 0 && b[2] == 0),
-            _ => b[0] >= 224                              // multicast / reserved
-        };
     }
 }

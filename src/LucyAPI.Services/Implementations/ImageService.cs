@@ -1,3 +1,4 @@
+using LucyAPI.Services.Utilities;
 using System.Security.Cryptography;
 using LucyAPI.Data.Models;
 using LucyAPI.Data.Repositories;
@@ -149,6 +150,15 @@ public sealed class ImageService : IImageService
         CreatedAt = record.CreatedAt.ToString("o")
     };
 
+    private const int MaxSourceImageBytes = 20 * 1024 * 1024;
+
+    private static readonly HttpClient s_publicHttp = new(PublicHttp.CreateHandler(allowRedirects: true, TimeSpan.FromSeconds(5)))
+    {
+        Timeout = TimeSpan.FromSeconds(30),
+        MaxResponseContentBufferSize = MaxSourceImageBytes,
+        DefaultRequestHeaders = { { "User-Agent", "LucyAPI/2.0 (+https://lucyapi.snowcapsystems.com)" } }
+    };
+
     private async Task<(byte[] Bytes, string Description)> LoadSourceImageAsync(
         int userId, int? imageId, string? imageUrl, CancellationToken ct)
     {
@@ -165,10 +175,25 @@ public sealed class ImageService : IImageService
 
         if (!string.IsNullOrEmpty(imageUrl))
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-            var resp = await http.GetAsync(imageUrl, ct);
-            resp.EnsureSuccessStatusCode();
+            // Caller-supplied URL: public https only (SSRF guard enforced on the socket, redirects included)
+            if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+                throw new InvalidOperationException("image_url must be an absolute https URL");
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await s_publicHttp.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new InvalidOperationException($"Couldn't fetch image_url: {ex.Message}");
+            }
+            if (!resp.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Couldn't fetch image_url: HTTP {(int)resp.StatusCode}");
+            if (resp.Content.Headers.ContentLength > MaxSourceImageBytes)
+                throw new InvalidOperationException("image_url is larger than 20 MB");
             var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
+            if (bytes.Length > MaxSourceImageBytes)
+                throw new InvalidOperationException("image_url is larger than 20 MB");
             return (bytes, $"url={imageUrl}");
         }
 
