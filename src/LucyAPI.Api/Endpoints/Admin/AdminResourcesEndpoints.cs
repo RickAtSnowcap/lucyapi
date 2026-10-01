@@ -784,7 +784,8 @@ public static class AdminResourcesEndpoints
                     SessionId = s.SessionId,
                     AgentName = s.AgentName,
                     StartedAt = s.StartedAt?.ToString("o"),
-                    Project = s.Project
+                    Project = s.Project,
+                    Projects = AdminSessionProject.From(s.ProjectIds, s.ProjectTitles)
                 }).ToList()
             });
         });

@@ -173,7 +173,6 @@ app.MapAlwaysLoadEndpoints();
 app.MapMemoryEndpoints();
 app.MapPreferenceEndpoints();
 app.MapHandoffEndpoints();
-app.MapSessionEndpoints();
 app.MapProjectEndpoints();
 app.MapSectionEndpoints();
 app.MapWikiEndpoints();

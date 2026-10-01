@@ -2,9 +2,11 @@
 -- Returns the full agent context as a single JSONB object.
 -- One-stop-shop for agent startup: time, always_load (titles only),
 -- memory titles, preference manifest, project manifest (with status code),
--- hints compact (flat list), and actionable nudges.
--- fn_nudge_get_actionable has a side-effect UPDATE, so it must be called
--- into a variable before the main JSONB build -- not inside a subquery.
+-- hints compact (flat list), actionable nudges, and the new session.
+-- Side effects (so they run into variables before the main JSONB build, not inside subqueries):
+--   * fn_nudge_get_actionable stamps nudges.last_reminded;
+--   * every call opens a new session for p_agent_id (the agent whose context this is) and reports the
+--     previous session's start (gap detection). Projects loaded later attach via fn_session_add_project.
 
 CREATE OR REPLACE FUNCTION lucyapi.fn_context_get_full(p_agent_id INT, p_user_id INT)
 RETURNS TABLE(context_json JSONB)
@@ -15,7 +17,18 @@ DECLARE
     v_nudges JSONB;
     v_mountain TIMESTAMPTZ;
     v_is_dst BOOLEAN;
+    v_previous_started TIMESTAMPTZ;
+    v_session_id INT;
+    v_session_started TIMESTAMPTZ;
 BEGIN
+    SELECT max(s.started_at) INTO v_previous_started
+      FROM public.sessions s
+     WHERE s.agent_id = p_agent_id;
+
+    INSERT INTO public.sessions (agent_id)
+    VALUES (p_agent_id)
+    RETURNING sessions.session_id, sessions.started_at INTO v_session_id, v_session_started;
+
     -- Compute Mountain Time for the time section.
     v_mountain := now() AT TIME ZONE 'America/Denver';
     -- MDT = UTC-6 (-21600s), MST = UTC-7 (-25200s). Compare current Denver offset to MST.
@@ -103,7 +116,14 @@ BEGIN
             '[]'::jsonb
         ),
 
-        'actionable_nudges', v_nudges
+        'actionable_nudges', v_nudges,
+
+        'session', jsonb_build_object(
+            'session_id',          v_session_id,
+            'started_at',          to_char(v_session_started AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+            'previous_started_at', to_char(v_previous_started AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+            'previous_started_mountain', to_char(v_previous_started AT TIME ZONE 'America/Denver', 'YYYY-MM-DD HH24:MI:SS')
+        )
     ) AS context_json;
 END;
 $proc$;

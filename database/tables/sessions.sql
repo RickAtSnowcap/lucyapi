@@ -1,5 +1,7 @@
 -- sessions.sql
--- Agent-scoped. Tracks conversation starts for gap detection.
+-- Agent-scoped. One row per agent session: every get_context call opens one (fn_context_get_full).
+-- Used for gap detection ("previous session") and, with session_projects, what each session worked on.
+-- project: free-text note from the retired create_session tool (pre-2026-10-01 rows only).
 
 CREATE TABLE IF NOT EXISTS sessions (
     session_id  SERIAL          PRIMARY KEY,

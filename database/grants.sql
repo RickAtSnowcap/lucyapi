@@ -6,7 +6,7 @@
 --   CREATE ROLE leaddev LOGIN PASSWORD '<choose one>';
 -- and put that login in LucyAPI's (sealed) Suitcase:DbConnection.
 --
--- Generated from the live catalog 2026-09-29 (after migrations 007/008); image grants updated for 010. Function grants use the
+-- Generated from the live catalog 2026-09-29 (after migrations 007/008); image grants updated for 010, session grants for 011. Function grants use the
 -- EXACT current signatures — when a migration changes a signature, update the matching line here.
 
 -- Schemas
@@ -31,6 +31,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
     project_statuses,
     projects,
     secrets,
+    session_projects,
     sessions,
     shared_objects,
     users,
@@ -66,6 +67,7 @@ TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_access_level(INTEGER, SMALLINT, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_agent_list(INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_dashboard_stats(INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_session_list_by_agent(INTEGER, INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_session_list_recent(INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_share_list_by_me(INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_admin_share_list_to_me(INTEGER) TO leaddev;
@@ -142,8 +144,7 @@ GRANT EXECUTE ON FUNCTION lucyapi.fn_section_delete(INTEGER, INTEGER, INTEGER) T
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_get(INTEGER, INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_get_all_compact(INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_update(INTEGER, INTEGER, INTEGER, TEXT, TEXT, TEXT) TO leaddev;
-GRANT EXECUTE ON FUNCTION lucyapi.fn_session_create(INTEGER, TEXT) TO leaddev;
-GRANT EXECUTE ON FUNCTION lucyapi.fn_session_get_last(INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_session_add_project(INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_check_permission(INTEGER, SMALLINT, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_create(INTEGER, INTEGER, SMALLINT, INTEGER, SMALLINT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_list_by_me(INTEGER) TO leaddev;

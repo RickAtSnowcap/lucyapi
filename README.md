@@ -19,7 +19,7 @@ The core idea: **agents shouldn't lose context between sessions, and they should
 - **Secrets** — encrypted key-value storage (BYTEA at rest in PostgreSQL)
 - **Sharing** — cross-user object sharing with permission levels
 - **Handoffs** — structured task handoffs between agents
-- **Sessions** — session tracking and notes
+- **Sessions** — automatic: every `get_context` call opens a session; projects an agent loads (`get_project` / `get_project_compact`) are recorded as that session's focus
 - **Nudges** — deadline reminders and actionable items with frequency control
 - **Images** — AI image generation, editing, analysis, and lifecycle management
 - **Google Docs** — Google Drive and Docs integration (create, read, update, move, delete)
@@ -71,7 +71,6 @@ PostgreSQL with all business logic in PL/pgSQL functions under the `lucyapi` sch
 | Secrets | `GET/PUT/DELETE /secrets[/{key}]` |
 | Sharing | `POST/DELETE /sharing`, `GET /sharing/by-me`, `GET /sharing/to-me`, `GET /sharing/check` |
 | Handoffs | `GET/POST/DELETE /agents/{name}/handoffs[/{id}]`, `PUT .../pickup` |
-| Sessions | `POST /sessions`, `GET /sessions/last`, `PUT /sessions/{id}/notes` |
 | Nudges | `GET/POST/PUT/DELETE /nudges[/{id}]` |
 | Images | `POST /genimage[/edit\|/analyze]`, `GET/DELETE/PATCH /images[/{id}]` |
 | Google Docs | `POST/GET/PUT/PATCH /google/docs[/{id}]`, `GET/POST/PUT/DELETE /google/drive/files[/{id}]` |

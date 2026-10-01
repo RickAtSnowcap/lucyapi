@@ -150,10 +150,6 @@ public sealed class McpToolDispatcher(
             "get_shared_by_me" => await HandleGetSharedByMe(caller, ct),
             "get_shared_to_me" => await HandleGetSharedToMe(caller, ct),
 
-            // --- Sessions ---
-            "create_session" => await HandleCreateSession(caller, args, ct),
-            "get_last_session" => await HandleGetLastSession(caller, ct),
-
             // --- Save Notes ---
             "save_notes" => HandleSaveNotes(args),
 
@@ -430,6 +426,7 @@ public sealed class McpToolDispatcher(
         var projectId = GetInt(args, "project_id");
         var project = await projectService.GetAsync(projectId, caller.UserId, ct);
         if (project is null) return Error("Project not found");
+        await sessionService.TryAddProjectAsync(caller.AgentId, projectId, ct);   // the session's focus, recorded invisibly
 
         project.DocumentUrl = documentLinks.CreateProjectUrl(projectId, caller.UserId);
 
@@ -445,6 +442,7 @@ public sealed class McpToolDispatcher(
         var projectId = GetInt(args, "project_id");
         var project = await projectService.GetCompactAsync(projectId, caller.UserId, ct);
         if (project is null) return Error("Project not found");
+        await sessionService.TryAddProjectAsync(caller.AgentId, projectId, ct);
 
         var sections = await sectionService.GetSectionsCompactAsync(caller.UserId, projectId, ct);
         var pJson = Serialize(project, AppJsonSerializerContext.Default.ProjectCompact);
@@ -752,23 +750,6 @@ public sealed class McpToolDispatcher(
     {
         var items = await shareService.GetSharedToMeAsync(caller.UserId, ct);
         return "{\"shared\":" + Serialize(items, AppJsonSerializerContext.Default.ListShareRecord) + "}";
-    }
-
-    // ===============================================================
-    //  HANDLERS: Sessions
-    // ===============================================================
-
-    private async Task<string> HandleCreateSession(Agent caller, JsonElement args, CancellationToken ct)
-    {
-        var req = new CreateSessionRequest { Project = GetString(args, "project") };
-        var result = await sessionService.CreateAsync(caller.AgentId, req, ct);
-        return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.SessionCreated);
-    }
-
-    private async Task<string> HandleGetLastSession(Agent caller, CancellationToken ct)
-    {
-        var session = await sessionService.GetLastAsync(caller.AgentId, ct);
-        return session is null ? "{}" : Serialize(session, AppJsonSerializerContext.Default.Session);
     }
 
     // ===============================================================
@@ -1223,7 +1204,7 @@ public sealed class McpToolDispatcher(
     private static string Esc(string s) => McpEndpoints.EscapeJsonString(s);
 
     // ===============================================================
-    //  Tool Definitions (87 tools)
+    //  Tool Definitions (85 tools)
     // ===============================================================
 
     private static string BuildToolListJson(bool includeAgentKey)
@@ -1281,7 +1262,8 @@ public sealed class McpToolDispatcher(
 
         // --- Context ---
         Tool("get_context",
-            "One-stop-shop agent startup context: time, always_load titles, memory titles, preferences manifest, project manifest, hints compact, and actionable nudges.",
+            "One-stop-shop agent startup context: time, always_load titles, memory titles, preferences manifest, project manifest, hints compact, and actionable nudges. " +
+            "Each call opens a new session (returned as session: session_id, started_at, previous_started_at in UTC, previous_started_mountain).",
             _A, "\"agent_name\"");
 
         Tool("get_always_load",
@@ -1488,15 +1470,6 @@ public sealed class McpToolDispatcher(
 
         Tool("get_shared_to_me",
             "List all objects other users have shared with you.",
-            "", "");
-
-        // --- Sessions ---
-        Tool("create_session",
-            "Log a session start.",
-            "\"project\":{\"type\":\"string\",\"description\":\"Optional project context\"}", "");
-
-        Tool("get_last_session",
-            "Most recent session for the calling agent.",
             "", "");
 
         // --- Save Notes ---

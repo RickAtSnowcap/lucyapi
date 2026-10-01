@@ -44,6 +44,7 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i tables/oauth_clients.sql
 \i tables/oauth_auth_codes.sql
 \i tables/oauth_tokens.sql
+\i tables/session_projects.sql
 
 -- 4. Functions
 \echo '--- Functions ---'
@@ -66,8 +67,7 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_handoff_create.sql
 \i functions/fn_handoff_pickup.sql
 \i functions/fn_handoff_delete.sql
-\i functions/fn_session_create.sql
-\i functions/fn_session_get_last.sql
+\i functions/fn_session_add_project.sql
 \i functions/fn_nudge_create.sql
 \i functions/fn_nudge_get.sql
 \i functions/fn_nudge_get_all.sql
@@ -149,6 +149,7 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_admin_share_list_to_me.sql
 \i functions/fn_admin_dashboard_stats.sql
 \i functions/fn_admin_session_list_recent.sql
+\i functions/fn_admin_session_list_by_agent.sql
 \i functions/fn_share_update_permission.sql
 
 -- 5. Seed data

@@ -9,7 +9,8 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
 {
     // ── Agents with last session ──────────────────────────────────
 
-    public async Task<List<(int AgentId, string Name, int? SessionId, DateTimeOffset? StartedAt, string? Project)>>
+    public async Task<List<(int AgentId, string Name, int? SessionId, DateTimeOffset? StartedAt, string? Project,
+        int[] ProjectIds, string[] ProjectTitles, DateTimeOffset? LastUsedAt)>>
         ListAgentsWithLastSessionAsync(int userId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
@@ -18,7 +19,7 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
             Parameters = { new() { Value = userId } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        var results = new List<(int, string, int?, DateTimeOffset?, string?)>();
+        var results = new List<(int, string, int?, DateTimeOffset?, string?, int[], string[], DateTimeOffset?)>();
         while (await reader.ReadAsync(ct))
         {
             results.Add((
@@ -26,7 +27,34 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
                 reader.GetString(1),
                 reader.IsDBNull(2) ? null : reader.GetInt32(2),
                 reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4)
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetFieldValue<int[]>(5),
+                reader.GetFieldValue<string[]>(6),
+                reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7)
+            ));
+        }
+        return results;
+    }
+
+    /// <summary>One agent's sessions, newest first, with the projects loaded in each. Caller's own agents only.</summary>
+    public async Task<List<(int SessionId, DateTimeOffset StartedAt, string? Project, int[] ProjectIds, string[] ProjectTitles)>>
+        ListAgentSessionsAsync(int userId, int agentId, int limit, CancellationToken ct = default)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_admin_session_list_by_agent($1, $2, $3)", conn)
+        {
+            Parameters = { new() { Value = userId }, new() { Value = agentId }, new() { Value = limit } }
+        };
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        var results = new List<(int, DateTimeOffset, string?, int[], string[])>();
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add((
+                reader.GetInt32(0),
+                reader.GetFieldValue<DateTimeOffset>(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.GetFieldValue<int[]>(3),
+                reader.GetFieldValue<string[]>(4)
             ));
         }
         return results;
@@ -159,7 +187,8 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
         );
     }
 
-    public async Task<List<(int SessionId, string AgentName, DateTimeOffset? StartedAt, string? Project)>>
+    public async Task<List<(int SessionId, string AgentName, DateTimeOffset? StartedAt, string? Project,
+        int[] ProjectIds, string[] ProjectTitles)>>
         GetRecentSessionsAsync(int userId, int limit = 5, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
@@ -168,14 +197,16 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
             Parameters = { new() { Value = userId }, new() { Value = limit } }
         };
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        var results = new List<(int, string, DateTimeOffset?, string?)>();
+        var results = new List<(int, string, DateTimeOffset?, string?, int[], string[])>();
         while (await reader.ReadAsync(ct))
         {
             results.Add((
                 reader.GetInt32(0),
                 reader.GetString(1),
                 reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3)
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.GetFieldValue<int[]>(4),
+                reader.GetFieldValue<string[]>(5)
             ));
         }
         return results;

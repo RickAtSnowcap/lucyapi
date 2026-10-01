@@ -257,6 +257,21 @@ try:
             check("owner's list_images excludes other user's upload", UP_ADMIN not in listed and UP_PNG in listed)
     check("append_doc_image rejects a bad doc_id", "valid Google ID" in mcp("append_doc_image", {"doc_id": "../x?y", "image_id": UP_PNG}, A_KEY).get("error", ""))
 
+    # ---------- sessions (migration 011): get_context opens one; get_project records the focus ----------
+    c1 = mcp("get_context", {"agent_name": "zzown-agent"}, A_KEY).get("session", {})
+    c2 = mcp("get_context", {"agent_name": "zzown-agent"}, A_KEY).get("session", {})
+    check("get_context opens a session each call", bool(c1.get("session_id")) and c2.get("session_id", 0) > c1["session_id"], f"{c1} {c2}")
+    check("get_context reports the previous session", c1.get("previous_started_at") is None and c2.get("previous_started_at") == c1.get("started_at"), f"{c1} {c2}")
+    mcp("get_project", {"project_id": P}, A_KEY); mcp("get_project_compact", {"project_id": P}, A_KEY)
+    check("get_project records the project once in the current session",
+          psql(f"SELECT count(*) FROM session_projects WHERE session_id={c2.get('session_id', 0)} AND project_id={P}") == "1")
+    mcp("get_project", {"project_id": P}, B_KEY)   # outsider: denied, so nothing recorded anywhere
+    check("denied get_project records nothing", psql(f"SELECT count(*) FROM session_projects WHERE project_id={P}") == "1")
+    for tool in ("create_session", "get_last_session"):
+        check(f"{tool} is retired", "error" in mcp(tool, {}, A_KEY))
+    if jwt:
+        denied_http("admin list another user's agent sessions", A_("GET", "/admin/agents/zzown-agent/sessions"))
+
     # ---------- level-2 share (W2): edit + delete sections, not the wiki ----------
     s, _ = http("PUT", f"/wikis/{W2}/sections/{WS2}", key=B_KEY, body={"title": "edited by L2"}); check("L2 edits shared wiki section", s == 200, f"{s}")
     s, _ = http("DELETE", f"/wikis/{W2}/sections/{WS2}", key=B_KEY); check("L2 deletes shared wiki section", s == 200, f"{s}")
@@ -288,6 +303,7 @@ finally:
                  DELETE FROM always_load WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
                  DELETE FROM memories WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
                  DELETE FROM handoffs WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
+                 DELETE FROM sessions WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
                  DELETE FROM agents WHERE user_id IN {u};
                  DELETE FROM users WHERE username IN ('zzown','zzout');""")
         left = psql("SELECT count(*) FROM users WHERE username IN ('zzown','zzout')")

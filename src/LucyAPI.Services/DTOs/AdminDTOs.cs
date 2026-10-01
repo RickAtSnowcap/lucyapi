@@ -42,13 +42,30 @@ public sealed class AdminAgentItem
     public int AgentId { get; set; }
     public string Name { get; set; } = "";
     public AdminLastSession? LastSession { get; set; }
+
+    /// <summary>Latest OAuth connector use across the agent's tokens (ISO 8601 UTC; updated at most once a minute).</summary>
+    public string? LastUsedAt { get; set; }
 }
 
 public sealed class AdminLastSession
 {
     public int SessionId { get; set; }
     public string? StartedAt { get; set; }
+
+    /// <summary>Free-text note from the retired create_session tool (old sessions only).</summary>
     public string? Project { get; set; }
+
+    /// <summary>Projects loaded during the session (get_project / get_project_compact), in load order.</summary>
+    public List<AdminSessionProject> Projects { get; set; } = [];
+}
+
+public sealed class AdminSessionProject
+{
+    public int ProjectId { get; set; }
+    public string Title { get; set; } = "";
+
+    public static List<AdminSessionProject> From(int[] ids, string[] titles) =>
+        ids.Zip(titles, (id, title) => new AdminSessionProject { ProjectId = id, Title = title }).ToList();
 }
 
 public sealed class AdminAgentListResponse
@@ -110,10 +127,10 @@ public sealed class AdminHandoffListResponse
     public List<LucyAPI.Data.Models.Handoff> Handoffs { get; set; } = [];
 }
 
-public sealed class AdminSessionLastResponse
+public sealed class AdminSessionListResponse
 {
     public string Agent { get; set; } = "";
-    public AdminLastSession? LastSession { get; set; }
+    public List<AdminLastSession> Sessions { get; set; } = [];
 }
 
 public sealed class AdminHandoffCreateRequest
@@ -381,6 +398,7 @@ public sealed class AdminRecentSession
     public string AgentName { get; set; } = "";
     public string? StartedAt { get; set; }
     public string? Project { get; set; }
+    public List<AdminSessionProject> Projects { get; set; } = [];
 }
 
 public sealed class AdminProjectStatusListResponse

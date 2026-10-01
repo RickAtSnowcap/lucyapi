@@ -1,10 +1,7 @@
-using LucyAPI.Data.Models;
-using LucyAPI.Services.DTOs;
-
 namespace LucyAPI.Services.Interfaces;
 
 public interface ISessionService
 {
-    Task<SessionCreated?> CreateAsync(int agentId, CreateSessionRequest request, CancellationToken ct = default);
-    Task<Session?> GetLastAsync(int agentId, CancellationToken ct = default);
+    /// <summary>Attaches a loaded project to the agent's current session. Never throws: tracking must not break the load.</summary>
+    Task TryAddProjectAsync(int agentId, int projectId, CancellationToken ct = default);
 }

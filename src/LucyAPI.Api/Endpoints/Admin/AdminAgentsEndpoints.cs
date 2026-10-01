@@ -31,8 +31,10 @@ public static class AdminAgentsEndpoints
                 {
                     SessionId = r.SessionId.Value,
                     StartedAt = r.StartedAt?.ToString("o"),
-                    Project = r.Project
-                } : null
+                    Project = r.Project,
+                    Projects = AdminSessionProject.From(r.ProjectIds, r.ProjectTitles)
+                } : null,
+                LastUsedAt = r.LastUsedAt?.ToString("o")
             }).ToList();
 
             return Results.Ok(new AdminAgentListResponse { Agents = agents });
@@ -367,26 +369,30 @@ public static class AdminAgentsEndpoints
 
         // ── Sessions ─────────────────────────────────────────────
 
-        app.MapGet("/admin/agents/{agentName}/sessions/last", async (
+        app.MapGet("/admin/agents/{agentName}/sessions", async (
             string agentName,
+            int? limit,
             HttpContext ctx,
             IAgentService agentService,
-            ISessionService sessionService,
+            AdminRepository adminRepo,
             CancellationToken ct) =>
         {
             var agent = await RequireUserAgent(agentName, ctx, agentService, ct);
             if (agent is null) return Results.NotFound();
 
-            var session = await sessionService.GetLastAsync(agent.Value.AgentId, ct);
-            return Results.Ok(new AdminSessionLastResponse
+            var caller = ctx.GetUserContext();
+            var rows = await adminRepo.ListAgentSessionsAsync(caller.UserId, agent.Value.AgentId,
+                Math.Clamp(limit ?? 50, 1, 500), ct);
+            return Results.Ok(new AdminSessionListResponse
             {
                 Agent = agentName,
-                LastSession = session is not null ? new AdminLastSession
+                Sessions = rows.Select(r => new AdminLastSession
                 {
-                    SessionId = session.SessionId,
-                    StartedAt = session.StartedAt.ToString("o"),
-                    Project = session.Project
-                } : null
+                    SessionId = r.SessionId,
+                    StartedAt = r.StartedAt.ToString("o"),
+                    Project = r.Project,
+                    Projects = AdminSessionProject.From(r.ProjectIds, r.ProjectTitles)
+                }).ToList()
             });
         });
     }
