@@ -267,6 +267,13 @@ try:
           psql(f"SELECT count(*) FROM session_projects WHERE session_id={c2.get('session_id', 0)} AND project_id={P}") == "1")
     mcp("get_project", {"project_id": P}, B_KEY)   # outsider: denied, so nothing recorded anywhere
     check("denied get_project records nothing", psql(f"SELECT count(*) FROM session_projects WHERE project_id={P}") == "1")
+    r = mcp("set_session_description", {"description": "  zz first focus  "}, A_KEY)
+    check("set_session_description sets the current session", r.get("session_id") == c2.get("session_id") and r.get("description") == "zz first focus", str(r))
+    r = mcp("set_session_description", {"description": "zz wrap-up"}, A_KEY)
+    check("set_session_description overwrites", psql(f"SELECT description FROM sessions WHERE session_id={c2.get('session_id', 0)}") == "zz wrap-up", str(r))
+    check("set_session_description rejects empty", "error" in mcp("set_session_description", {"description": "   "}, A_KEY))
+    check("set_session_description rejects over 500 chars", "500" in mcp("set_session_description", {"description": "x" * 501}, A_KEY).get("error", ""))
+    check("set_session_description needs a session first", "get_context" in mcp("set_session_description", {"description": "zz"}, B_KEY).get("error", ""))
     for tool in ("create_session", "get_last_session"):
         check(f"{tool} is retired", "error" in mcp(tool, {}, A_KEY))
     if jwt:

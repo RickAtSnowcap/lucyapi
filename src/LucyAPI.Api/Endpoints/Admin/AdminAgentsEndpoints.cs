@@ -31,7 +31,7 @@ public static class AdminAgentsEndpoints
                 {
                     SessionId = r.SessionId.Value,
                     StartedAt = r.StartedAt?.ToString("o"),
-                    Project = r.Project,
+                    Description = r.Description,
                     Projects = AdminSessionProject.From(r.ProjectIds, r.ProjectTitles)
                 } : null,
                 LastUsedAt = r.LastUsedAt?.ToString("o")
@@ -390,7 +390,7 @@ public static class AdminAgentsEndpoints
                 {
                     SessionId = r.SessionId,
                     StartedAt = r.StartedAt.ToString("o"),
-                    Project = r.Project,
+                    Description = r.Description,
                     Projects = AdminSessionProject.From(r.ProjectIds, r.ProjectTitles)
                 }).ToList()
             });

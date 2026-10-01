@@ -52,8 +52,8 @@ public sealed class AdminLastSession
     public int SessionId { get; set; }
     public string? StartedAt { get; set; }
 
-    /// <summary>Free-text note from the retired create_session tool (old sessions only).</summary>
-    public string? Project { get; set; }
+    /// <summary>Set by the agent via set_session_description (old sessions: the note from the retired create_session).</summary>
+    public string? Description { get; set; }
 
     /// <summary>Projects loaded during the session (get_project / get_project_compact), in load order.</summary>
     public List<AdminSessionProject> Projects { get; set; } = [];
@@ -397,7 +397,7 @@ public sealed class AdminRecentSession
     public int SessionId { get; set; }
     public string AgentName { get; set; } = "";
     public string? StartedAt { get; set; }
-    public string? Project { get; set; }
+    public string? Description { get; set; }
     public List<AdminSessionProject> Projects { get; set; } = [];
 }
 

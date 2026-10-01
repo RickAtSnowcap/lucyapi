@@ -185,6 +185,7 @@ namespace LucyAPI.Api;
 [JsonSerializable(typeof(AdminMemoryListResponse))]
 [JsonSerializable(typeof(AdminHandoffListResponse))]
 [JsonSerializable(typeof(AdminSessionListResponse))]
+[JsonSerializable(typeof(SessionDescriptionResponse))]
 [JsonSerializable(typeof(AdminSessionProject))]
 [JsonSerializable(typeof(AdminPickedUpResponse))]
 [JsonSerializable(typeof(AdminPickedUpItem))]

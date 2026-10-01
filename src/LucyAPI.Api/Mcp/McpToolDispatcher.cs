@@ -150,6 +150,9 @@ public sealed class McpToolDispatcher(
             "get_shared_by_me" => await HandleGetSharedByMe(caller, ct),
             "get_shared_to_me" => await HandleGetSharedToMe(caller, ct),
 
+            // --- Sessions (opened by get_context) ---
+            "set_session_description" => await HandleSetSessionDescription(caller, args, ct),
+
             // --- Save Notes ---
             "save_notes" => HandleSaveNotes(args),
 
@@ -753,6 +756,20 @@ public sealed class McpToolDispatcher(
     }
 
     // ===============================================================
+    //  HANDLERS: Sessions
+    // ===============================================================
+
+    private async Task<string> HandleSetSessionDescription(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var description = GetString(args, "description");
+        if (string.IsNullOrWhiteSpace(description)) return Error("description is required");
+        var result = await sessionService.SetDescriptionAsync(caller.AgentId, description, ct);
+        return result is null
+            ? Error("No session yet: call get_context first (it opens your session)")
+            : Serialize(result, AppJsonSerializerContext.Default.SessionDescriptionResponse);
+    }
+
+    // ===============================================================
     //  HANDLERS: Save Notes
     // ===============================================================
 
@@ -1204,7 +1221,7 @@ public sealed class McpToolDispatcher(
     private static string Esc(string s) => McpEndpoints.EscapeJsonString(s);
 
     // ===============================================================
-    //  Tool Definitions (85 tools)
+    //  Tool Definitions (86 tools)
     // ===============================================================
 
     private static string BuildToolListJson(bool includeAgentKey)
@@ -1263,7 +1280,8 @@ public sealed class McpToolDispatcher(
         // --- Context ---
         Tool("get_context",
             "One-stop-shop agent startup context: time, always_load titles, memory titles, preferences manifest, project manifest, hints compact, and actionable nudges. " +
-            "Each call opens a new session (returned as session: session_id, started_at, previous_started_at in UTC, previous_started_mountain).",
+            "Each call opens a new session (returned as session: session_id, started_at, previous_started_at in UTC, previous_started_mountain); " +
+            "describe it with set_session_description once its focus is clear.",
             _A, "\"agent_name\"");
 
         Tool("get_always_load",
@@ -1471,6 +1489,14 @@ public sealed class McpToolDispatcher(
         Tool("get_shared_to_me",
             "List all objects other users have shared with you.",
             "", "");
+
+        // --- Sessions ---
+        Tool("set_session_description",
+            "Describe what your current session (opened by get_context) is about, in a short phrase. Call it once the " +
+            "session's focus is clear, and again when wrapping up (each call replaces the previous description). " +
+            "Rick sees it in LucyAdmin next to the projects you loaded.",
+            "\"description\":{\"type\":\"string\",\"description\":\"Short description of the session's work (max 500 characters)\"}",
+            "\"description\"");
 
         // --- Save Notes ---
         Tool("save_notes",

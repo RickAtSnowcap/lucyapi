@@ -9,7 +9,7 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
 {
     // ── Agents with last session ──────────────────────────────────
 
-    public async Task<List<(int AgentId, string Name, int? SessionId, DateTimeOffset? StartedAt, string? Project,
+    public async Task<List<(int AgentId, string Name, int? SessionId, DateTimeOffset? StartedAt, string? Description,
         int[] ProjectIds, string[] ProjectTitles, DateTimeOffset? LastUsedAt)>>
         ListAgentsWithLastSessionAsync(int userId, CancellationToken ct = default)
     {
@@ -37,7 +37,7 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
     }
 
     /// <summary>One agent's sessions, newest first, with the projects loaded in each. Caller's own agents only.</summary>
-    public async Task<List<(int SessionId, DateTimeOffset StartedAt, string? Project, int[] ProjectIds, string[] ProjectTitles)>>
+    public async Task<List<(int SessionId, DateTimeOffset StartedAt, string? Description, int[] ProjectIds, string[] ProjectTitles)>>
         ListAgentSessionsAsync(int userId, int agentId, int limit, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
@@ -187,7 +187,7 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
         );
     }
 
-    public async Task<List<(int SessionId, string AgentName, DateTimeOffset? StartedAt, string? Project,
+    public async Task<List<(int SessionId, string AgentName, DateTimeOffset? StartedAt, string? Description,
         int[] ProjectIds, string[] ProjectTitles)>>
         GetRecentSessionsAsync(int userId, int limit = 5, CancellationToken ct = default)
     {

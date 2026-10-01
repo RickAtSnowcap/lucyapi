@@ -6,7 +6,7 @@
 --   CREATE ROLE leaddev LOGIN PASSWORD '<choose one>';
 -- and put that login in LucyAPI's (sealed) Suitcase:DbConnection.
 --
--- Generated from the live catalog 2026-09-29 (after migrations 007/008); image grants updated for 010, session grants for 011. Function grants use the
+-- Generated from the live catalog 2026-09-29 (after migrations 007/008); image grants updated for 010, session grants for 011/012. Function grants use the
 -- EXACT current signatures — when a migration changes a signature, update the matching line here.
 
 -- Schemas
@@ -145,6 +145,7 @@ GRANT EXECUTE ON FUNCTION lucyapi.fn_section_get(INTEGER, INTEGER, INTEGER) TO l
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_get_all_compact(INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_update(INTEGER, INTEGER, INTEGER, TEXT, TEXT, TEXT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_session_add_project(INTEGER, INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_session_set_description(INTEGER, TEXT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_check_permission(INTEGER, SMALLINT, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_create(INTEGER, INTEGER, SMALLINT, INTEGER, SMALLINT) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_share_list_by_me(INTEGER) TO leaddev;

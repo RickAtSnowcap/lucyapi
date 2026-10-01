@@ -68,6 +68,7 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_handoff_pickup.sql
 \i functions/fn_handoff_delete.sql
 \i functions/fn_session_add_project.sql
+\i functions/fn_session_set_description.sql
 \i functions/fn_nudge_create.sql
 \i functions/fn_nudge_get.sql
 \i functions/fn_nudge_get_all.sql

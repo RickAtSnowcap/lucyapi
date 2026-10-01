@@ -3,13 +3,13 @@
 -- Only the caller's own agents; anything else returns no rows.
 
 CREATE OR REPLACE FUNCTION lucyapi.fn_admin_session_list_by_agent(p_user_id INT, p_agent_id INT, p_limit INT)
-RETURNS TABLE(session_id INT, started_at TIMESTAMPTZ, project TEXT, project_ids INT[], project_titles TEXT[])
+RETURNS TABLE(session_id INT, started_at TIMESTAMPTZ, description TEXT, project_ids INT[], project_titles TEXT[])
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
 BEGIN
     RETURN QUERY
-    SELECT s.session_id, s.started_at, s.project,
+    SELECT s.session_id, s.started_at, s.description,
            COALESCE(sp.ids, '{}'), COALESCE(sp.titles, '{}')
       FROM public.sessions s
       JOIN public.agents a ON a.agent_id = s.agent_id
