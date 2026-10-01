@@ -1281,7 +1281,7 @@ public sealed class McpToolDispatcher(
         Tool("get_context",
             "One-stop-shop agent startup context: time, always_load titles, memory titles, preferences manifest, project manifest, hints compact, and actionable nudges. " +
             "Each call opens a new session (returned as session: session_id, started_at, previous_started_at in UTC, previous_started_mountain); " +
-            "describe it with set_session_description once its focus is clear.",
+            "describe it with set_session_description once its focus is clear, and again after a real change of direction.",
             _A, "\"agent_name\"");
 
         Tool("get_always_load",
@@ -1493,8 +1493,9 @@ public sealed class McpToolDispatcher(
         // --- Sessions ---
         Tool("set_session_description",
             "Describe what your current session (opened by get_context) is about, in a short phrase. Call it once the " +
-            "session's focus is clear, and again when wrapping up (each call replaces the previous description). " +
-            "Rick sees it in LucyAdmin next to the projects you loaded.",
+            "session's focus is clear, and again whenever the focus changes substantially (a real change of direction, " +
+            "not every topic shift). Each call replaces the previous description. Rick sees it in LucyAdmin next to the " +
+            "projects you loaded.",
             "\"description\":{\"type\":\"string\",\"description\":\"Short description of the session's work (max 500 characters)\"}",
             "\"description\"");
 
