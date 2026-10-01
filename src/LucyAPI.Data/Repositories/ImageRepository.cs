@@ -5,19 +5,26 @@ namespace LucyAPI.Data.Repositories;
 
 public sealed class ImageRepository(NpgsqlDataSource dataSource)
 {
-    public async Task<ImageRecord?> InsertAsync(int? userId, string filename, string? prompt,
-        string? model, int sizeBytes, int? width, int? height, CancellationToken ct = default)
+    public async Task<ImageRecord?> InsertAsync(int? userId, int? agentId, string filename, string source,
+        string mimeType, string? title, string? description, string? prompt, string? model, bool keep,
+        int sizeBytes, int? width, int? height, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(
-            "SELECT * FROM lucyapi.fn_image_insert($1, $2, $3, $4, $5, $6, $7)", conn)
+            "SELECT * FROM lucyapi.fn_image_insert($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)", conn)
         {
             Parameters =
             {
                 new() { Value = userId.HasValue ? userId.Value : DBNull.Value },
+                new() { Value = agentId.HasValue ? agentId.Value : DBNull.Value },
                 new() { Value = filename },
+                new() { Value = source },
+                new() { Value = mimeType },
+                new() { Value = (object?)title ?? DBNull.Value },
+                new() { Value = (object?)description ?? DBNull.Value },
                 new() { Value = (object?)prompt ?? DBNull.Value },
                 new() { Value = (object?)model ?? DBNull.Value },
+                new() { Value = keep },
                 new() { Value = sizeBytes },
                 new() { Value = width.HasValue ? width.Value : DBNull.Value },
                 new() { Value = height.HasValue ? height.Value : DBNull.Value }
@@ -133,6 +140,11 @@ public sealed class ImageRepository(NpgsqlDataSource dataSource)
         Keep = reader.GetBoolean(5),
         SizeBytes = reader.IsDBNull(6) ? null : reader.GetInt32(6),
         Width = reader.IsDBNull(7) ? null : reader.GetInt32(7),
-        Height = reader.IsDBNull(8) ? null : reader.GetInt32(8)
+        Height = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+        Title = reader.IsDBNull(9) ? null : reader.GetString(9),
+        Description = reader.IsDBNull(10) ? null : reader.GetString(10),
+        MimeType = reader.IsDBNull(11) ? null : reader.GetString(11),
+        Source = reader.IsDBNull(12) ? null : reader.GetString(12),
+        AgentId = reader.IsDBNull(13) ? null : reader.GetInt32(13)
     };
 }

@@ -11,6 +11,11 @@ public sealed class ImageRecord
     public int? SizeBytes { get; set; }
     public int? Width { get; set; }
     public int? Height { get; set; }
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public string? MimeType { get; set; }
+    public string? Source { get; set; }
+    public int? AgentId { get; set; }
 }
 
 public sealed class ImageDeleteResult

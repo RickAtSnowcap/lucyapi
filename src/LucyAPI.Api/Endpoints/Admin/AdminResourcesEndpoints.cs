@@ -6,6 +6,7 @@ using LucyAPI.Data.Repositories;
 using LucyAPI.Services.DTOs;
 using LucyAPI.Services.Interfaces;
 using LucyAPI.Services.Utilities;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Configuration;
 
 namespace LucyAPI.Api.Endpoints.Admin;
@@ -659,9 +660,65 @@ public static class AdminResourcesEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetUserContext();
-            var result = await imageService.GenerateAsync(caller.UserId, request, ct);
+            var result = await imageService.GenerateAsync(caller.UserId, null, request, ct);
             return Results.Ok(result);
         });
+
+        // Multipart upload from LucyAdmin (phone or desktop): one image per request, form field "file",
+        // optional "title" / "description". Validated by ImageValidator (magic bytes, 25 MB, pixel cap, strict decode).
+        // Bearer-JWT only (no cookies), so no antiforgery token is needed.
+        app.MapPost("/admin/images/upload", async (
+            HttpContext ctx,
+            IImageService imageService,
+            CancellationToken ct) =>
+        {
+            var caller = ctx.GetUserContext();
+
+            // Explicit body limit for this endpoint (Kestrel's global default is ~28.6 MB): 25 MB image + multipart envelope.
+            var sizeFeature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (sizeFeature is { IsReadOnly: false })
+                sizeFeature.MaxRequestBodySize = ImageValidator.MaxUploadBytes + 1024 * 1024;
+
+            if (!ctx.Request.HasFormContentType)
+                return Results.BadRequest(new ErrorResponse { Error = "Expected multipart/form-data" });
+
+            IFormCollection form;
+            try
+            {
+                form = await ctx.Request.ReadFormAsync(ct);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or BadHttpRequestException)
+            {
+                return Results.BadRequest(new ErrorResponse { Error = "Upload too large or malformed (limit 25 MB)" });
+            }
+
+            var file = form.Files.GetFile("file");
+            if (file is null || file.Length == 0)
+                return Results.BadRequest(new ErrorResponse { Error = "No file in field 'file'" });
+            if (file.Length > ImageValidator.MaxUploadBytes)
+                return Results.BadRequest(new ErrorResponse { Error = "Image is larger than 25 MB" });
+
+            var data = new byte[file.Length];
+            await using (var stream = file.OpenReadStream())
+                await stream.ReadExactlyAsync(data, ct);
+
+            try
+            {
+                var result = await imageService.UploadAsync(caller.UserId, null, new UploadImageRequest
+                {
+                    Data = data,
+                    Title = form["title"].FirstOrDefault() ?? Path.GetFileNameWithoutExtension(file.FileName),
+                    Description = form["description"].FirstOrDefault(),
+                    Keep = true
+                }, ct);
+                return Results.Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new ErrorResponse { Error = ex.Message });
+            }
+        })
+        .DisableAntiforgery();
 
         app.MapPatch("/admin/images/{imageId:int}", async (
             int imageId,

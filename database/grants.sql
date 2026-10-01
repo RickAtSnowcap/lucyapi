@@ -6,7 +6,7 @@
 --   CREATE ROLE leaddev LOGIN PASSWORD '<choose one>';
 -- and put that login in LucyAPI's (sealed) Suitcase:DbConnection.
 --
--- Generated from the live catalog 2026-09-29 (after migrations 007/008). Function grants use the
+-- Generated from the live catalog 2026-09-29 (after migrations 007/008); image grants updated for 010. Function grants use the
 -- EXACT current signatures — when a migration changes a signature, update the matching line here.
 
 -- Schemas
@@ -94,7 +94,7 @@ GRANT EXECUTE ON FUNCTION lucyapi.fn_image_delete(INTEGER, INTEGER, BOOLEAN) TO 
 GRANT EXECUTE ON FUNCTION lucyapi.fn_image_delete_batch(INTEGER, INTEGER[]) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_image_get(INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_image_get_unkept(INTEGER) TO leaddev;
-GRANT EXECUTE ON FUNCTION lucyapi.fn_image_insert(INTEGER, TEXT, TEXT, TEXT, INTEGER, INTEGER, INTEGER) TO leaddev;
+GRANT EXECUTE ON FUNCTION lucyapi.fn_image_insert(INTEGER, INTEGER, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, BOOLEAN, INTEGER, INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_image_list(INTEGER, BOOLEAN, INTEGER, INTEGER) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_image_update_keep(INTEGER, INTEGER, BOOLEAN) TO leaddev;
 GRANT EXECUTE ON FUNCTION lucyapi.fn_memory_create(INTEGER, TEXT, TEXT) TO leaddev;

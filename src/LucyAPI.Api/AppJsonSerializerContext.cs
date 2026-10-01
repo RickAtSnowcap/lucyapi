@@ -124,6 +124,9 @@ namespace LucyAPI.Api;
 [JsonSerializable(typeof(NudgeListResponse))]
 [JsonSerializable(typeof(AdminCreatedResponse<NudgeCreated>))]
 // Phase 5: Google Docs
+[JsonSerializable(typeof(DocImagesResponse))]
+[JsonSerializable(typeof(DocImageAppendResponse))]
+[JsonSerializable(typeof(DocImageInfo))]
 [JsonSerializable(typeof(DocResponse))]
 [JsonSerializable(typeof(DriveFileInfo))]
 [JsonSerializable(typeof(DriveFileListResponse))]

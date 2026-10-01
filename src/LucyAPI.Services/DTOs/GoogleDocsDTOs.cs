@@ -35,6 +35,39 @@ public sealed class DocResponse
     public string Url { get; set; } = "";
 }
 
+public sealed class DocImageAppendResponse
+{
+    public string DocumentId { get; set; } = "";
+    public string Url { get; set; } = "";
+    public int ImageId { get; set; }
+    public string ImageUrl { get; set; } = "";
+
+    /// <summary>Width sent to Docs after clamping to the text width; null = the image's natural size (it fit).</summary>
+    public double? WidthPt { get; set; }
+}
+
+public sealed class DocImagesResponse
+{
+    public string DocumentId { get; set; } = "";
+    public string? Title { get; set; }
+    public string Url { get; set; } = "";
+    public List<DocImageInfo> Images { get; set; } = [];
+}
+
+public sealed class DocImageInfo
+{
+    public string ObjectId { get; set; } = "";
+    public string? ContentUri { get; set; }
+    public string? SourceUri { get; set; }
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public double? WidthPt { get; set; }
+    public double? HeightPt { get; set; }
+    public int StartIndex { get; set; }
+    public string? ParagraphText { get; set; }
+    public string? PrecedingText { get; set; }
+}
+
 public sealed class DriveFileInfo
 {
     public string Id { get; set; } = "";

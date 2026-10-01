@@ -180,6 +180,7 @@ public sealed class McpToolDispatcher(
             // --- Images ---
             "generate_image" => await HandleGenerateImage(caller, args, ct),
             "edit_image" => await HandleEditImage(caller, args, ct),
+            "upload_image" => await HandleUploadImage(caller, args, ct),
             "analyze_image" => await HandleAnalyzeImage(caller, args, ct),
             "list_images" => await HandleListImages(caller, args, ct),
             "keep_image" => await HandleKeepImage(caller, args, ct),
@@ -189,6 +190,8 @@ public sealed class McpToolDispatcher(
             // --- Google Docs ---
             "create_google_doc" => await HandleCreateGoogleDoc(caller, args, ct),
             "read_google_doc" => await HandleReadGoogleDoc(caller, args, ct),
+            "get_doc_images" => await HandleGetDocImages(caller, args, ct),
+            "append_doc_image" => await HandleAppendDocImage(caller, args, ct),
             "update_google_doc" => await HandleUpdateGoogleDoc(caller, args, ct),
             "append_google_doc" => await HandleAppendGoogleDoc(caller, args, ct),
 
@@ -926,7 +929,7 @@ public sealed class McpToolDispatcher(
             Model = GetString(args, "model") ?? "nano-banana",
             AspectRatio = GetString(args, "aspect_ratio") ?? "1:1"
         };
-        var result = await imageService.GenerateAsync(caller.UserId, req, ct);
+        var result = await imageService.GenerateAsync(caller.UserId, caller.AgentId, req, ct);
         return Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
     }
 
@@ -939,7 +942,36 @@ public sealed class McpToolDispatcher(
             ImageUrl = GetString(args, "image_url"),
             Model = GetString(args, "model") ?? "nano-banana"
         };
-        var result = await imageService.EditAsync(caller.UserId, req, ct);
+        var result = await imageService.EditAsync(caller.UserId, caller.AgentId, req, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
+    }
+
+    private async Task<string> HandleUploadImage(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var data = GetString(args, "data");
+        if (string.IsNullOrWhiteSpace(data)) return Error("data (base64 image) is required");
+
+        // Accept a bare base64 string or a data: URL. The type always comes from the bytes, never from here.
+        var comma = data.StartsWith("data:", StringComparison.Ordinal) ? data.IndexOf(',') : -1;
+        var b64 = comma >= 0 ? data[(comma + 1)..] : data;
+
+        // Refuse before decoding anything big: base64 is 4 chars per 3 bytes.
+        const string tooBig = "Image is over the 25 MB upload limit";
+        if ((long)b64.Length * 3 / 4 > ImageValidator.MaxUploadBytes + 3) return Error(tooBig);
+
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(b64.Trim()); }
+        catch (FormatException) { return Error("data is not valid base64"); }
+        if (bytes.Length > ImageValidator.MaxUploadBytes) return Error(tooBig);
+
+        var req = new UploadImageRequest
+        {
+            Data = bytes,
+            Title = GetString(args, "title"),
+            Description = GetString(args, "description"),
+            Keep = GetBool(args, "keep", true)
+        };
+        var result = await imageService.UploadAsync(caller.UserId, caller.AgentId, req, ct);
         return Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
     }
 
@@ -997,6 +1029,36 @@ public sealed class McpToolDispatcher(
         var body = GetString(args, "body");
         var result = await googleDocsService.CreateDocumentAsync(caller.UserId, title, body, ct);
         return Serialize(result, AppJsonSerializerContext.Default.DocResponse);
+    }
+
+    private async Task<string> HandleGetDocImages(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var docId = GetString(args, "doc_id") ?? "";
+        var result = await googleDocsService.GetDocImagesAsync(caller.UserId, docId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.DocImagesResponse);
+    }
+
+    private async Task<string> HandleAppendDocImage(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var docId = GetString(args, "doc_id") ?? "";
+        var imageId = GetInt(args, "image_id");
+        double? widthPt = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("width_pt", out var w)
+            && w.ValueKind == JsonValueKind.Number ? w.GetDouble() : null;
+
+        // Only the caller's own images. Docs fetches the public /nanoimages/ URL itself.
+        var image = await imageService.GetAsync(caller.UserId, imageId, ct);
+        if (image is null) return Error("Image not found");
+        if (image.MimeType is not ("image/png" or "image/jpeg" or "image/gif"))
+            return Error($"Google Docs can't embed {image.MimeType ?? "this image type"} (PNG, JPEG or GIF only)");
+        if ((long)(image.Width ?? 0) * (image.Height ?? 0) > 25_000_000)
+            return Error("Google Docs can't embed images over 25 megapixels");
+        if (image.SizeBytes > 50 * 1024 * 1024)
+            return Error("Google Docs can't embed images over 50 MB");
+
+        var result = await googleDocsService.AppendImageAsync(caller.UserId, docId, image.Url, widthPt, image.Width, ct);
+        result.ImageId = image.ImageId;
+        result.ImageUrl = image.Url;
+        return Serialize(result, AppJsonSerializerContext.Default.DocImageAppendResponse);
     }
 
     private async Task<string> HandleReadGoogleDoc(Agent caller, JsonElement args, CancellationToken ct)
@@ -1161,7 +1223,7 @@ public sealed class McpToolDispatcher(
     private static string Esc(string s) => McpEndpoints.EscapeJsonString(s);
 
     // ===============================================================
-    //  Tool Definitions (82 tools)
+    //  Tool Definitions (87 tools)
     // ===============================================================
 
     private static string BuildToolListJson(bool includeAgentKey)
@@ -1526,6 +1588,16 @@ public sealed class McpToolDispatcher(
             "\"model\":{\"type\":\"string\",\"description\":\"Model alias\"}",
             "\"prompt\"");
 
+        Tool("upload_image",
+            "Upload an image (PNG, JPEG, WebP or GIF; max 25 MB) and get a permanent public URL. " +
+            "Images are PUBLIC: anyone with the URL can view them. WebP is stored as PNG (animated WebP: first frame only); " +
+            "the response's notice says when that happened.",
+            "\"data\":{\"type\":\"string\",\"description\":\"Image bytes, base64 (a data: URL is also accepted)\"}," +
+            "\"title\":{\"type\":\"string\",\"description\":\"Short title\"}," +
+            "\"description\":{\"type\":\"string\",\"description\":\"Optional description\"}," +
+            "\"keep\":{\"type\":\"boolean\",\"description\":\"Protect from cleanup_images (default true)\"}",
+            "\"data\",\"title\"");
+
         Tool("analyze_image",
             "Analyze an image and return a text description via Gemini.",
             "\"image_id\":{\"type\":\"integer\",\"description\":\"Image ID (provide this or image_url)\"}," +
@@ -1563,6 +1635,24 @@ public sealed class McpToolDispatcher(
         Tool("read_google_doc",
             "Read a Google Doc and return its plain text content.",
             "\"doc_id\":{\"type\":\"string\",\"description\":\"Google Doc document ID\"}", "\"doc_id\"");
+
+        Tool("get_doc_images",
+            "List the inline images in a Google Doc, in document order: content_uri (a short-lived Google link: " +
+            "use it right away, e.g. with analyze_image, and never store it), source_uri, size in points, " +
+            "position (start_index) and the surrounding text. read_google_doc returns text only.",
+            "\"doc_id\":{\"type\":\"string\",\"description\":\"Google Doc document ID\"}", "\"doc_id\"");
+
+        Tool("append_doc_image",
+            "Append one of your images (by image_id, from upload_image / generate_image / list_images) to the end " +
+            "of a Google Doc, on its own line. PNG, JPEG or GIF. The image never extends past the margins: any width " +
+            "(width_pt or the natural size) wider than the doc's text width is reduced to fit. The response's width_pt " +
+            "is the width actually used (null = natural size).",
+            "\"doc_id\":{\"type\":\"string\",\"description\":\"Google Doc document ID\"}," +
+            "\"image_id\":{\"type\":\"integer\",\"description\":\"Your image's ID\"}," +
+            "\"width_pt\":{\"type\":\"number\",\"description\":\"Optional width in points; height keeps the aspect ratio. " +
+            "The text width depends on the doc's margins (468pt on Letter with 1-inch margins, 540pt with 0.5-inch). " +
+            "Omit to use the natural size, fitted to the page. Values wider than the text width are clamped to it.\"}",
+            "\"doc_id\",\"image_id\"");
 
         Tool("update_google_doc",
             "Replace a document's content with new text.",

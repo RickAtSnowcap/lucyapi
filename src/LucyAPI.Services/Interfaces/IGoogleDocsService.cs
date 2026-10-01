@@ -6,6 +6,8 @@ public interface IGoogleDocsService
 {
     Task<DocResponse> CreateDocumentAsync(int userId, string title, string? bodyText, CancellationToken ct = default);
     Task<DocResponse> ReadDocumentAsync(int userId, string documentId, CancellationToken ct = default);
+    Task<DocImageAppendResponse> AppendImageAsync(int userId, string documentId, string imageUri, double? widthPt, int? imageWidthPx, CancellationToken ct = default);
+    Task<DocImagesResponse> GetDocImagesAsync(int userId, string documentId, CancellationToken ct = default);
     Task<DocResponse> UpdateDocumentAsync(int userId, string documentId, string content, CancellationToken ct = default);
     Task<DocResponse> AppendToDocumentAsync(int userId, string documentId, string content, CancellationToken ct = default);
     Task<DriveFileListResponse> ListFilesAsync(int userId, string? folderId, CancellationToken ct = default);

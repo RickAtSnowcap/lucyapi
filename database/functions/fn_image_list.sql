@@ -8,15 +8,17 @@ CREATE OR REPLACE FUNCTION lucyapi.fn_image_list(
     p_offset  INT DEFAULT 0
 )
 RETURNS TABLE(image_id INT, filename TEXT, prompt TEXT, model TEXT,
-              created_at TIMESTAMPTZ, keep BOOLEAN, size_bytes INT, width INT, height INT)
+              created_at TIMESTAMPTZ, keep BOOLEAN, size_bytes INT, width INT, height INT,
+              title TEXT, description TEXT, mime_type TEXT, source TEXT, agent_id INT)
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
 BEGIN
     RETURN QUERY
     SELECT i.image_id, i.filename, i.prompt, i.model,
-           i.created_at, i.keep, i.size_bytes, i.width, i.height
-    FROM images i
+           i.created_at, i.keep, i.size_bytes, i.width, i.height,
+           i.title, i.description, i.mime_type, i.source, i.agent_id
+    FROM public.images i
     WHERE (p_user_id IS NULL OR i.user_id = p_user_id)
       AND (p_keep IS NULL OR i.keep = p_keep)
     ORDER BY i.created_at DESC

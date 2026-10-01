@@ -16,7 +16,7 @@ public static class ImageEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
-            var result = await service.GenerateAsync(caller.UserId, request, ct);
+            var result = await service.GenerateAsync(caller.UserId, caller.AgentId, request, ct);
             return Results.Ok(result);
         });
 
@@ -29,7 +29,7 @@ public static class ImageEndpoints
             var caller = ctx.GetAgentContext();
             try
             {
-                var result = await service.EditAsync(caller.UserId, request, ct);
+                var result = await service.EditAsync(caller.UserId, caller.AgentId, request, ct);
                 return Results.Ok(result);
             }
             catch (KeyNotFoundException ex)

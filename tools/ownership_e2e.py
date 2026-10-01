@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """End-to-end ownership test for LucyAPI (migration 007). Creates two throwaway users (zzown = owner,
 zzout = outsider) with agents, keys and data, checks every access path (REST key, admin JWT, legacy MCP),
-then deletes everything. Prints no secrets."""
-import base64, hashlib, json, os, secrets, subprocess, sys, urllib.request, urllib.error
+then deletes everything. Prints no secrets.
+Also covers image uploads (migration 010, project #3 §450): upload_image + /admin/images/upload, WebP → PNG,
+GIF stored byte-for-byte, and rejection of bad magic bytes, truncated, oversize and over-pixel-cap images."""
+import base64, hashlib, json, os, secrets, struct, subprocess, sys, urllib.request, urllib.error, uuid, zlib
 
 B = "http://127.0.0.1:8100"
+IMAGES_DIR = "/opt/lucyapi/output/images"
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 results = []
 
 def psql(sql):
@@ -31,6 +35,8 @@ def http(method, path, key=None, jwt=None, body=None):
             return r.status, r.read().decode()
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
+    except (urllib.error.URLError, ConnectionError):   # server may close an over-limit body before reading it
+        return 413, ""
 
 def mcp(tool, args, key):
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": dict(args, agent_key=key)}}
@@ -39,6 +45,43 @@ def mcp(tool, args, key):
         return json.loads(json.loads(t)["result"]["content"][0]["text"])
     except Exception:
         return {"error": f"unparsed {s}"}
+
+def fixture(name):
+    with open(os.path.join(FIXTURES, name), "rb") as f:
+        return f.read()
+
+def make_png(w, h):
+    """Black RGB PNG of any size; rows of zeros compress to almost nothing (pixel-cap test)."""
+    def chunk(t, d): return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    raw = zlib.compress(b"\x00" * ((w * 3 + 1) * h), 9)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", raw) + chunk(b"IEND", b"")
+
+def make_animated_gif(frames=3):
+    """1x1, 2-colour animated GIF (NETSCAPE loop) with `frames` frames."""
+    g = b"GIF89a" + struct.pack("<HH", 1, 1) + bytes([0x80, 0, 0]) + b"\x00\x00\x00\xff\xff\xff"
+    g += b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00"
+    for i in range(frames):
+        g += b"\x21\xf9\x04\x00\x0a\x00\x00\x00" + b"\x2c" + struct.pack("<HHHH", 0, 0, 1, 1) + b"\x00"
+        g += bytes([0x02, 0x02, 0x44 if i % 2 == 0 else 0x4c, 0x01, 0x00])
+    return g + b"\x3b"
+
+def multipart(path, filename, data, jwt):
+    boundary = uuid.uuid4().hex
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
+            f"Content-Type: application/octet-stream\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(B + path, data=body, method="POST", headers={
+        "Content-Type": f"multipart/form-data; boundary={boundary}", "Authorization": "Bearer " + jwt})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+    except (urllib.error.URLError, ConnectionError) as e:   # server may close an over-limit body early
+        return 413, str(e)
+
+def disk(filename):
+    with open(os.path.join(IMAGES_DIR, filename), "rb") as f:
+        return f.read()
 
 def check(name, ok, detail=""):
     results.append((ok, name, detail))
@@ -139,6 +182,81 @@ try:
                        ("share_object", {"shared_to_user_id": ua, "object_type_id": 1, "object_id": P, "permission_level": 3})]:
         check(f"MCP {tool}: outsider denied", "error" in mcp(tool, args, B_KEY))
 
+    # ---------- image uploads (migration 010): MCP upload_image as the owner ----------
+    agent_a = int(psql("SELECT agent_id FROM agents WHERE name='zzown-agent'"))
+    up = lambda data, **kw: mcp("upload_image", dict({"data": base64.b64encode(data).decode(), "title": "zz"}, **kw), A_KEY)
+    rows_before = int(psql(f"SELECT count(*) FROM images WHERE user_id={ua}"))
+
+    r = up(fixture("sample.png"), description="zz desc")
+    check("upload PNG", r.get("mime_type") == "image/png" and r.get("url", "").endswith(".png") and r.get("source") == "uploaded"
+          and r.get("agent_id") == agent_a and r.get("keep") is True and r.get("description") == "zz desc"
+          and (r.get("width"), r.get("height")) == (320, 200) and r.get("notice") is None, str(r)[:200])
+    check("upload PNG stored byte-for-byte", "filename" in r and disk(r["filename"]) == fixture("sample.png"))
+    UP_PNG = r.get("image_id")
+
+    r = up(fixture("sample.jpg"))
+    check("upload JPEG", r.get("mime_type") == "image/jpeg" and r.get("url", "").endswith(".jpg"), str(r)[:200])
+
+    r = up(fixture("lossy.webp"))
+    check("upload lossy WebP lands as PNG", r.get("mime_type") == "image/png" and r.get("url", "").endswith(".png")
+          and r.get("notice") == "WebP was converted to PNG." and disk(r["filename"])[:8] == b"\x89PNG\r\n\x1a\n", str(r)[:200])
+
+    r = up(fixture("lossless-alpha.webp"))
+    check("upload lossless+alpha WebP keeps alpha (PNG colour type 6)", "filename" in r and disk(r["filename"])[25] == 6, str(r)[:200])
+
+    r = up(fixture("animated.webp"))
+    check("upload animated WebP: first frame as PNG + notice", r.get("mime_type") == "image/png"
+          and "100 frames" in (r.get("notice") or "") and (r.get("width"), r.get("height")) == (300, 225), str(r)[:200])
+
+    gif = make_animated_gif()
+    r = up(gif)
+    check("upload animated GIF stored byte-for-byte", r.get("mime_type") == "image/gif" and r.get("url", "").endswith(".gif")
+          and disk(r["filename"]) == gif and r.get("notice") is None, str(r)[:200])
+
+    r = mcp("upload_image", {"data": "data:image/png;base64," + base64.b64encode(fixture("sample.png")).decode(), "title": "zz"}, A_KEY)
+    check("upload accepts a data: URL", r.get("mime_type") == "image/png", str(r)[:200])
+    uploaded_ok = 7
+
+    png = fixture("sample.png")
+    # "over 25 MB": this script uses the legacy /mcp/ route (Kestrel default ~28.6 MB body), which refuses the
+    # ~35 MB request outright (413); the OAuth connector allows 36 MB and the dispatcher returns the 25 MB error.
+    for name, data, expect in [("garbage bytes", os.urandom(4096), ("Not a supported image",)),
+                               ("text file", b"hello, I am not a PNG\n" * 50, ("Not a supported image",)),
+                               ("truncated PNG", png[:len(png) // 2], ("truncated",)),
+                               ("over pixel cap (7000x6000)", make_png(7000, 6000), ("MP",)),
+                               ("over 25 MB", b"\x89PNG\r\n\x1a\n" + os.urandom(26 * 1024 * 1024), ("25 MB", "unparsed 413"))]:
+        r = up(data)
+        check(f"upload rejects {name}", any(e in r.get("error", "") for e in expect), str(r)[:200])
+    r = mcp("upload_image", {"data": "not base64!!", "title": "zz"}, A_KEY)
+    check("upload rejects invalid base64", "base64" in r.get("error", ""), str(r)[:200])
+    check("rejected uploads leave no rows", int(psql(f"SELECT count(*) FROM images WHERE user_id={ua}")) == rows_before + uploaded_ok)
+
+    # ---------- image uploads: LucyAdmin multipart as zzout ----------
+    UP_ADMIN = None
+    if jwt:
+        s, r = multipart("/admin/images/upload", "phone-photo.jpg", fixture("sample.jpg"), jwt)
+        check("admin upload JPEG", s == 200 and r.get("mime_type") == "image/jpeg" and r.get("title") == "phone-photo"
+              and r.get("agent_id") is None and r.get("source") == "uploaded" and r.get("keep") is True, f"{s} {str(r)[:200]}")
+        UP_ADMIN = r.get("image_id") if s == 200 else None
+        s, r = multipart("/admin/images/upload", "a.webp", fixture("lossy.webp"), jwt)
+        check("admin upload WebP lands as PNG + notice", s == 200 and r.get("mime_type") == "image/png" and r.get("notice"), f"{s} {str(r)[:200]}")
+        s, r = multipart("/admin/images/upload", "x.png", os.urandom(2048), jwt)
+        check("admin upload rejects garbage", s == 400, f"{s}")
+        s, r = multipart("/admin/images/upload", "big.png", b"\x89PNG\r\n\x1a\n" + os.urandom(27 * 1024 * 1024), jwt)
+        check("admin upload rejects over 25 MB", s in (400, 413), f"{s}")
+
+        # ownership of uploads, both directions
+        denied_http("admin get owner's upload", A_("GET", f"/admin/images/{UP_PNG}"))
+        denied_http("admin delete owner's upload", A_("DELETE", f"/admin/images/{UP_PNG}?force=true"))
+        if UP_ADMIN:
+            for tool, args in [("keep_image", {"image_id": UP_ADMIN}), ("delete_image", {"image_id": UP_ADMIN, "force": True}),
+                               ("analyze_image", {"image_id": UP_ADMIN, "prompt": "describe"}),
+                               ("append_doc_image", {"doc_id": "zzNotARealDoc", "image_id": UP_ADMIN})]:
+                check(f"MCP {tool}: other user's upload denied", "not found" in mcp(tool, args, A_KEY).get("error", "").lower())
+            listed = [i["image_id"] for i in mcp("list_images", {"limit": 200}, A_KEY).get("images", [])]
+            check("owner's list_images excludes other user's upload", UP_ADMIN not in listed and UP_PNG in listed)
+    check("append_doc_image rejects a bad doc_id", "valid Google ID" in mcp("append_doc_image", {"doc_id": "../x?y", "image_id": UP_PNG}, A_KEY).get("error", ""))
+
     # ---------- level-2 share (W2): edit + delete sections, not the wiki ----------
     s, _ = http("PUT", f"/wikis/{W2}/sections/{WS2}", key=B_KEY, body={"title": "edited by L2"}); check("L2 edits shared wiki section", s == 200, f"{s}")
     s, _ = http("DELETE", f"/wikis/{W2}/sections/{WS2}", key=B_KEY); check("L2 deletes shared wiki section", s == 200, f"{s}")
@@ -157,6 +275,9 @@ try:
 finally:
     try:
         u = "(SELECT user_id FROM users WHERE username IN ('zzown','zzout'))"
+        for fn in psql(f"SELECT filename FROM images WHERE user_id IN {u}").splitlines():
+            p = os.path.join(IMAGES_DIR, os.path.basename(fn))
+            if os.path.isfile(p): os.remove(p)
         psql(f"""DELETE FROM shared_objects WHERE shared_by_user_id IN {u} OR shared_to_user_id IN {u};
                  DELETE FROM project_sections WHERE project_id IN (SELECT project_id FROM projects WHERE user_id IN {u});
                  DELETE FROM projects WHERE user_id IN {u};

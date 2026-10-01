@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="4.153.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../LucyAPI.Data/LucyAPI.Data.csproj" />
     <ProjectReference Include="/home/rfry/code/tcrypt-lib/TcryptLib.csproj" />
   </ItemGroup>

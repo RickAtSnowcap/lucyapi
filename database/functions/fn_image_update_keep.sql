@@ -3,7 +3,8 @@
 
 CREATE OR REPLACE FUNCTION lucyapi.fn_image_update_keep(p_user_id INT, p_image_id INT, p_keep BOOLEAN)
 RETURNS TABLE(image_id INT, filename TEXT, prompt TEXT, model TEXT,
-              created_at TIMESTAMPTZ, keep BOOLEAN, size_bytes INT, width INT, height INT)
+              created_at TIMESTAMPTZ, keep BOOLEAN, size_bytes INT, width INT, height INT,
+              title TEXT, description TEXT, mime_type TEXT, source TEXT, agent_id INT)
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
@@ -13,6 +14,7 @@ BEGIN
      WHERE images.image_id = p_image_id
        AND images.user_id = p_user_id
     RETURNING images.image_id, images.filename, images.prompt, images.model,
-              images.created_at, images.keep, images.size_bytes, images.width, images.height;
+              images.created_at, images.keep, images.size_bytes, images.width, images.height,
+              images.title, images.description, images.mime_type, images.source, images.agent_id;
 END;
 $proc$;

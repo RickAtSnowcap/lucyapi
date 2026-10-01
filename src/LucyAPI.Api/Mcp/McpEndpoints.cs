@@ -3,6 +3,7 @@ using System.Text.Json;
 using LucyAPI.Api.OAuth;
 using LucyAPI.Data.Models;
 using LucyAPI.Data.Repositories;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace LucyAPI.Api.Mcp;
 
@@ -36,6 +37,12 @@ public static class McpEndpoints
             await OAuthEndpoints.WriteChallengeAsync(ctx, tokenPresented: ctx.Request.Headers.Authorization.Count > 0);
             return;
         }
+
+        // Authenticated callers only: room for upload_image's 25 MB image as base64 (~33.4 MB) plus the JSON-RPC envelope.
+        var sizeFeature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (sizeFeature is { IsReadOnly: false })
+            sizeFeature.MaxRequestBodySize = 36L * 1024 * 1024;
+
         await HandleRpc(ctx, dispatcher, agent);
     }
 

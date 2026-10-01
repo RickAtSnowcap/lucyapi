@@ -54,14 +54,14 @@ public sealed class GeminiService : IGeminiService
         return await ExtractImageFromResponse(resp, modelStr, ct);
     }
 
-    public async Task<GeminiImageResult> EditImageAsync(byte[] sourceBytes, string prompt, string model,
+    public async Task<GeminiImageResult> EditImageAsync(byte[] sourceBytes, string sourceMimeType, string prompt, string model,
         CancellationToken ct)
     {
         var modelStr = ResolveModel(model);
         var b64 = Convert.ToBase64String(sourceBytes);
 
         var json = "{\"contents\":[{\"parts\":["
-            + "{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"" + b64 + "\"}},"
+            + "{\"inlineData\":{\"mimeType\":\"" + EscapeJson(sourceMimeType) + "\",\"data\":\"" + b64 + "\"}},"
             + "{\"text\":\"" + EscapeJson(prompt) + "\"}]}],"
             + "\"generationConfig\":{\"responseModalities\":[\"IMAGE\",\"TEXT\"],"
             + "\"imageConfig\":{}}}";
@@ -74,14 +74,14 @@ public sealed class GeminiService : IGeminiService
         return await ExtractImageFromResponse(resp, modelStr, ct);
     }
 
-    public async Task<GeminiAnalysisResult> AnalyzeImageAsync(byte[] imageBytes, string prompt,
+    public async Task<GeminiAnalysisResult> AnalyzeImageAsync(byte[] imageBytes, string imageMimeType, string prompt,
         CancellationToken ct)
     {
         const string modelStr = "gemini-flash-latest";   // alias tracks the current stable Flash (gemini-2.0-flash was retired → 404)
         var b64 = Convert.ToBase64String(imageBytes);
 
         var json = "{\"contents\":[{\"parts\":["
-            + "{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"" + b64 + "\"}},"
+            + "{\"inlineData\":{\"mimeType\":\"" + EscapeJson(imageMimeType) + "\",\"data\":\"" + b64 + "\"}},"
             + "{\"text\":\"" + EscapeJson(prompt) + "\"}]}]}";
 
         var resp = await _http.PostAsync(

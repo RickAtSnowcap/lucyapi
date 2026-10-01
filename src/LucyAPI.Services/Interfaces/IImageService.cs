@@ -4,8 +4,9 @@ namespace LucyAPI.Services.Interfaces;
 
 public interface IImageService
 {
-    Task<ImageResponse> GenerateAsync(int? userId, GenImageRequest request, CancellationToken ct = default);
-    Task<ImageResponse> EditAsync(int userId, EditImageRequest request, CancellationToken ct = default);
+    Task<ImageResponse> GenerateAsync(int? userId, int? agentId, GenImageRequest request, CancellationToken ct = default);
+    Task<ImageResponse> EditAsync(int userId, int? agentId, EditImageRequest request, CancellationToken ct = default);
+    Task<ImageResponse> UploadAsync(int userId, int? agentId, UploadImageRequest request, CancellationToken ct = default);
     Task<AnalyzeImageResponse> AnalyzeAsync(int userId, AnalyzeImageRequest request, CancellationToken ct = default);
     Task<List<ImageResponse>> ListAsync(int? userId, bool? keep, int limit, int offset, CancellationToken ct = default);
     Task<ImageResponse?> GetAsync(int userId, int imageId, CancellationToken ct = default);

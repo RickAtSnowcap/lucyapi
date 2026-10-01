@@ -22,6 +22,14 @@ public sealed class AnalyzeImageRequest
     public string Prompt { get; set; } = "Describe this image in detail";
 }
 
+public sealed class UploadImageRequest
+{
+    public byte[] Data { get; set; } = [];
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public bool Keep { get; set; } = true;
+}
+
 public sealed class KeepImageRequest
 {
     public bool Keep { get; set; }
@@ -38,7 +46,15 @@ public sealed class ImageResponse
     public int? SizeBytes { get; set; }
     public int? Width { get; set; }
     public int? Height { get; set; }
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public string? MimeType { get; set; }
+    public string? Source { get; set; }
+    public int? AgentId { get; set; }
     public string CreatedAt { get; set; } = "";
+
+    /// <summary>Set only on the upload/generate response when the stored image differs from what was sent (e.g. WebP → PNG).</summary>
+    public string? Notice { get; set; }
 }
 
 public sealed class AnalyzeImageResponse

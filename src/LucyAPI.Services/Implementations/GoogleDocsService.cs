@@ -153,6 +153,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
 
     public async Task<DocResponse> ReadDocumentAsync(int userId, string documentId, CancellationToken ct)
     {
+        RequireGoogleId(documentId, "doc_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -174,8 +175,89 @@ public sealed class GoogleDocsService : IGoogleDocsService
         };
     }
 
+    /// <summary>
+    /// Inline images in a doc, in document order: Google's contentUri (short-lived — use it now, never store it),
+    /// sourceUri when Docs kept it, size, position and the surrounding text. read_google_doc stays text-only.
+    /// </summary>
+    public async Task<DocImagesResponse> GetDocImagesAsync(int userId, string documentId, CancellationToken ct)
+    {
+        RequireGoogleId(documentId, "doc_id");
+        var session = await EnsureInitializedAsync(userId, ct);
+        using var http = CreateAuthedClient(session);
+
+        var resp = await http.GetAsync($"https://docs.googleapis.com/v1/documents/{documentId}", ct);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = await JsonDocument.ParseAsync(
+            await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var root = doc.RootElement;
+
+        var images = new List<DocImageInfo>();
+        if (root.TryGetProperty("body", out var body) && body.TryGetProperty("content", out var content))
+        {
+            string? previousText = null;
+            CollectInlineImages(content, root, images, ref previousText);
+        }
+
+        return new DocImagesResponse
+        {
+            DocumentId = documentId,
+            Title = root.TryGetProperty("title", out var t) ? t.GetString() : null,
+            Url = $"https://docs.google.com/document/d/{documentId}/edit",
+            Images = images
+        };
+    }
+
+    /// <summary>
+    /// Appends an image (on its own line) at the end of a doc. Docs fetches imageUri itself, so it must be a public
+    /// https URL to a PNG, JPEG or GIF. Width: widthPt if given, else natural size (pixels at 96 dpi) — either way
+    /// CLAMPED to the doc's text width (page width minus margins). Docs itself doesn't clamp: it keeps any width,
+    /// overflowing the margins (verified 2026-10-01). Docs keeps the aspect ratio when only a width is sent.
+    /// </summary>
+    public async Task<DocImageAppendResponse> AppendImageAsync(int userId, string documentId, string imageUri, double? widthPt,
+        int? imageWidthPx, CancellationToken ct)
+    {
+        RequireGoogleId(documentId, "doc_id");
+        var session = await EnsureInitializedAsync(userId, ct);
+        using var http = CreateAuthedClient(session);
+
+        var resp = await http.GetAsync($"https://docs.googleapis.com/v1/documents/{documentId}", ct);
+        resp.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+
+        var endIndex = EndIndexOf(doc.RootElement);
+        var insertAt = endIndex - 1;
+
+        if (widthPt is not > 0) widthPt = null;
+        var requested = widthPt ?? (imageWidthPx is > 0 ? imageWidthPx.Value * 0.75 : null);
+        if (requested is { } r && TextWidthPt(doc.RootElement) is { } textWidth && r > textWidth)
+            widthPt = Math.Floor(textWidth);
+
+        var requests = new StringBuilder("{\"requests\":[");
+        if (insertAt > 1)
+        {
+            requests.Append("{\"insertText\":{\"location\":{\"index\":" + insertAt + "},\"text\":\"\\n\"}},");
+            insertAt++;
+        }
+        requests.Append("{\"insertInlineImage\":{\"location\":{\"index\":" + insertAt + "},\"uri\":\"" + EscapeJson(imageUri) + "\"");
+        if (widthPt is > 0)
+            requests.Append(",\"objectSize\":{\"width\":{\"magnitude\":"
+                + widthPt.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + ",\"unit\":\"PT\"}}");
+        requests.Append("}}]}");
+
+        await BatchUpdateAsync(http, documentId, requests.ToString(), ct);
+
+        return new DocImageAppendResponse
+        {
+            DocumentId = documentId,
+            Url = $"https://docs.google.com/document/d/{documentId}/edit",
+            WidthPt = widthPt
+        };
+    }
+
     public async Task<DocResponse> UpdateDocumentAsync(int userId, string documentId, string content, CancellationToken ct)
     {
+        RequireGoogleId(documentId, "doc_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -205,6 +287,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
 
     public async Task<DocResponse> AppendToDocumentAsync(int userId, string documentId, string content, CancellationToken ct)
     {
+        RequireGoogleId(documentId, "doc_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -228,6 +311,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
 
     public async Task<DriveFileListResponse> ListFilesAsync(int userId, string? folderId, CancellationToken ct)
     {
+        if (folderId is not null) RequireGoogleId(folderId, "folder_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -263,6 +347,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
 
     public async Task<FolderResponse> CreateFolderAsync(int userId, string name, string? parentFolderId, CancellationToken ct)
     {
+        if (parentFolderId is not null) RequireGoogleId(parentFolderId, "parent_folder_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -287,6 +372,8 @@ public sealed class GoogleDocsService : IGoogleDocsService
 
     public async Task<MoveFileResponse> MoveFileAsync(int userId, string fileId, string targetFolderId, CancellationToken ct)
     {
+        RequireGoogleId(fileId, "file_id");
+        RequireGoogleId(targetFolderId, "target_folder_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -303,7 +390,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
             var pList = new List<string>();
             foreach (var p in parArr.EnumerateArray())
                 pList.Add(p.GetString() ?? "");
-            prevParents = string.Join(",", pList);
+            prevParents = Uri.EscapeDataString(string.Join(",", pList));
         }
 
         // Move
@@ -333,6 +420,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
 
     public async Task<DeleteFileResponse> DeleteFileAsync(int userId, string fileId, CancellationToken ct)
     {
+        RequireGoogleId(fileId, "file_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -347,6 +435,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
 
     public async Task<DriveFileInfo> GetFileMetadataAsync(int userId, string fileId, CancellationToken ct)
     {
+        RequireGoogleId(fileId, "file_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
@@ -406,7 +495,12 @@ public sealed class GoogleDocsService : IGoogleDocsService
         using var doc = await JsonDocument.ParseAsync(
             await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
 
-        if (doc.RootElement.TryGetProperty("body", out var body) &&
+        return EndIndexOf(doc.RootElement);
+    }
+
+    private static int EndIndexOf(JsonElement root)
+    {
+        if (root.TryGetProperty("body", out var body) &&
             body.TryGetProperty("content", out var content))
         {
             var last = content.EnumerateArray().LastOrDefault();
@@ -417,6 +511,98 @@ public sealed class GoogleDocsService : IGoogleDocsService
             }
         }
         return 1;
+    }
+
+    /// <summary>Page width minus left/right margins, in points (null if the doc doesn't say).</summary>
+    private static double? TextWidthPt(JsonElement root)
+    {
+        if (!root.TryGetProperty("documentStyle", out var style) ||
+            !style.TryGetProperty("pageSize", out var page) || Magnitude(page, "width") is not { } pageWidth)
+            return null;
+        static double Margin(JsonElement s, string name) =>
+            s.TryGetProperty(name, out var m) && m.TryGetProperty("magnitude", out var v) && v.ValueKind == JsonValueKind.Number
+                ? v.GetDouble() : 72;
+        var width = pageWidth - Margin(style, "marginLeft") - Margin(style, "marginRight");
+        return width > 0 ? width : null;
+    }
+
+    /// <summary>Walks structural elements (recursing into table cells) and records each inlineObjectElement.</summary>
+    private static void CollectInlineImages(JsonElement content, JsonElement root, List<DocImageInfo> images,
+        ref string? previousText)
+    {
+        foreach (var element in content.EnumerateArray())
+        {
+            if (element.TryGetProperty("table", out var table) && table.TryGetProperty("tableRows", out var rows))
+            {
+                foreach (var row in rows.EnumerateArray())
+                    if (row.TryGetProperty("tableCells", out var cells))
+                        foreach (var cell in cells.EnumerateArray())
+                            if (cell.TryGetProperty("content", out var cellContent))
+                                CollectInlineImages(cellContent, root, images, ref previousText);
+                continue;
+            }
+
+            if (!element.TryGetProperty("paragraph", out var para) || !para.TryGetProperty("elements", out var elements))
+                continue;
+
+            var paragraphText = new StringBuilder();
+            foreach (var elem in elements.EnumerateArray())
+                if (elem.TryGetProperty("textRun", out var run) && run.TryGetProperty("content", out var text))
+                    paragraphText.Append(text.GetString());
+            var paragraph = paragraphText.ToString().Trim();
+
+            foreach (var elem in elements.EnumerateArray())
+            {
+                if (!elem.TryGetProperty("inlineObjectElement", out var ioe) ||
+                    !ioe.TryGetProperty("inlineObjectId", out var idProp))
+                    continue;
+
+                var objectId = idProp.GetString() ?? "";
+                var info = new DocImageInfo
+                {
+                    ObjectId = objectId,
+                    StartIndex = elem.TryGetProperty("startIndex", out var si) ? si.GetInt32() : 0,
+                    ParagraphText = paragraph.Length > 0 ? Truncate(paragraph, 300) : null,
+                    PrecedingText = previousText
+                };
+
+                if (root.TryGetProperty("inlineObjects", out var objects) &&
+                    objects.TryGetProperty(objectId, out var obj) &&
+                    obj.TryGetProperty("inlineObjectProperties", out var props) &&
+                    props.TryGetProperty("embeddedObject", out var embedded))
+                {
+                    info.Title = embedded.TryGetProperty("title", out var ti) ? ti.GetString() : null;
+                    info.Description = embedded.TryGetProperty("description", out var de) ? de.GetString() : null;
+                    if (embedded.TryGetProperty("imageProperties", out var ip))
+                    {
+                        info.ContentUri = ip.TryGetProperty("contentUri", out var cu) ? cu.GetString() : null;
+                        info.SourceUri = ip.TryGetProperty("sourceUri", out var su) ? su.GetString() : null;
+                    }
+                    if (embedded.TryGetProperty("size", out var size))
+                    {
+                        info.WidthPt = Magnitude(size, "width");
+                        info.HeightPt = Magnitude(size, "height");
+                    }
+                }
+                images.Add(info);
+            }
+
+            if (paragraph.Length > 0) previousText = Truncate(paragraph, 300);
+        }
+    }
+
+    private static double? Magnitude(JsonElement size, string dimension) =>
+        size.TryGetProperty(dimension, out var d) && d.TryGetProperty("magnitude", out var m) && m.ValueKind == JsonValueKind.Number
+            ? m.GetDouble() : null;
+
+    private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max] + "…";
+
+    /// <summary>Google Doc/Drive IDs are URL-safe base64-ish. Anything else is refused before it reaches a URL or query.</summary>
+    private static void RequireGoogleId(string id, string paramName)
+    {
+        if (string.IsNullOrEmpty(id) || id.Length > 200 ||
+            !id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
+            throw new ArgumentException($"{paramName} is not a valid Google ID");
     }
 
     private static string ExtractPlainText(JsonElement root)

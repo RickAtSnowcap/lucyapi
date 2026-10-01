@@ -23,48 +23,42 @@ public sealed class ImageService : IImageService
         Directory.CreateDirectory(_imagesDir);
     }
 
-    public async Task<ImageResponse> GenerateAsync(int? userId, GenImageRequest request, CancellationToken ct)
+    public async Task<ImageResponse> GenerateAsync(int? userId, int? agentId, GenImageRequest request, CancellationToken ct)
     {
         var result = await _gemini.GenerateImageAsync(request.Prompt, request.Model, request.AspectRatio, ct);
+        var image = ImageValidator.Validate(result.ImageBytes, MaxGeneratedImageBytes);
 
-        var filename = MakeFilename();
-        var filepath = Path.Combine(_imagesDir, filename);
-        await File.WriteAllBytesAsync(filepath, result.ImageBytes, ct);
-
-        var (width, height) = GetImageDimensions(result.ImageBytes);
-        var sizeBytes = result.ImageBytes.Length;
-
-        var record = await _repo.InsertAsync(userId, filename, request.Prompt, result.ModelUsed,
-            sizeBytes, width, height, ct);
-
-        return ToResponse(record!);
+        return await StoreAsync(userId, agentId, image, "generated", title: null, description: null,
+            request.Prompt, result.ModelUsed, keep: false, ct);
     }
 
-    public async Task<ImageResponse> EditAsync(int userId, EditImageRequest request, CancellationToken ct)
+    public async Task<ImageResponse> EditAsync(int userId, int? agentId, EditImageRequest request, CancellationToken ct)
     {
-        var (sourceBytes, sourceDesc) = await LoadSourceImageAsync(userId, request.ImageId, request.ImageUrl, ct);
+        var (source, _) = await LoadSourceImageAsync(userId, request.ImageId, request.ImageUrl, ct);
+        var (bytes, mimeType) = ForGemini(source);
 
-        var result = await _gemini.EditImageAsync(sourceBytes, request.Prompt, request.Model, ct);
+        var result = await _gemini.EditImageAsync(bytes, mimeType, request.Prompt, request.Model, ct);
+        var image = ImageValidator.Validate(result.ImageBytes, MaxGeneratedImageBytes);
 
-        var filename = MakeFilename();
-        var filepath = Path.Combine(_imagesDir, filename);
-        await File.WriteAllBytesAsync(filepath, result.ImageBytes, ct);
+        return await StoreAsync(userId, agentId, image, "edited", title: null, description: null,
+            $"[edit] {request.Prompt}", result.ModelUsed, keep: false, ct);
+    }
 
-        var (width, height) = GetImageDimensions(result.ImageBytes);
-        var sizeBytes = result.ImageBytes.Length;
-        var editPrompt = $"[edit] {request.Prompt}";
+    public async Task<ImageResponse> UploadAsync(int userId, int? agentId, UploadImageRequest request, CancellationToken ct)
+    {
+        var image = ImageValidator.Validate(request.Data, ImageValidator.MaxUploadBytes);
 
-        var record = await _repo.InsertAsync(userId, filename, editPrompt, result.ModelUsed,
-            sizeBytes, width, height, ct);
-
-        return ToResponse(record!);
+        return await StoreAsync(userId, agentId, image, "uploaded", Trim(request.Title), Trim(request.Description),
+            prompt: null, model: null, request.Keep, ct);
     }
 
     public async Task<AnalyzeImageResponse> AnalyzeAsync(int userId, AnalyzeImageRequest request, CancellationToken ct)
     {
-        var (sourceBytes, sourceDesc) = await LoadSourceImageAsync(userId, request.ImageId, request.ImageUrl, ct);
+        var (source, sourceDesc) = await LoadSourceImageAsync(userId, request.ImageId, request.ImageUrl, ct);
 
-        var result = await _gemini.AnalyzeImageAsync(sourceBytes, request.Prompt, ct);
+        var (bytes, mimeType) = ForGemini(source);
+
+        var result = await _gemini.AnalyzeImageAsync(bytes, mimeType, request.Prompt, ct);
 
         return new AnalyzeImageResponse
         {
@@ -136,6 +130,39 @@ public sealed class ImageService : IImageService
 
     // -- Helpers --
 
+    /// <summary>Writes the file under a random name with its real extension, then records it. No orphan file if the insert fails.</summary>
+    private async Task<ImageResponse> StoreAsync(int? userId, int? agentId, ValidatedImage image, string source,
+        string? title, string? description, string? prompt, string? model, bool keep, CancellationToken ct)
+    {
+        string? notice;
+        (image, notice) = ImageValidator.NormalizeForStorage(image);
+
+        var filename = MakeFilename(image.Extension);
+        var filepath = Path.Combine(_imagesDir, filename);
+        await File.WriteAllBytesAsync(filepath, image.Bytes, ct);
+
+        try
+        {
+            var record = await _repo.InsertAsync(userId, agentId, filename, source, image.MimeType, title, description,
+                prompt, model, keep, image.Bytes.Length, image.Width, image.Height, CancellationToken.None)
+                ?? throw new InvalidOperationException("Image insert returned no row");
+            var response = ToResponse(record);
+            response.Notice = notice;
+            return response;
+        }
+        catch
+        {
+            try { File.Delete(filepath); } catch (IOException) { }
+            throw;
+        }
+    }
+
+    /// <summary>Gemini takes PNG/JPEG/WebP but not GIF: send a GIF's first frame as PNG.</summary>
+    private static (byte[] Bytes, string MimeType) ForGemini(ValidatedImage image) =>
+        image.MimeType == "image/gif" ? (ImageValidator.ConvertToPng(image.Bytes), "image/png") : (image.Bytes, image.MimeType);
+
+    private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private ImageResponse ToResponse(ImageRecord record) => new()
     {
         ImageId = record.ImageId,
@@ -147,10 +174,18 @@ public sealed class ImageService : IImageService
         SizeBytes = record.SizeBytes,
         Width = record.Width,
         Height = record.Height,
+        Title = record.Title,
+        Description = record.Description,
+        MimeType = record.MimeType,
+        Source = record.Source,
+        AgentId = record.AgentId,
         CreatedAt = record.CreatedAt.ToString("o")
     };
 
     private const int MaxSourceImageBytes = 20 * 1024 * 1024;
+
+    /// <summary>Gemini output: trusted source, validated only to learn its real type and size.</summary>
+    private const int MaxGeneratedImageBytes = 50 * 1024 * 1024;
 
     private static readonly HttpClient s_publicHttp = new(PublicHttp.CreateHandler(allowRedirects: true, TimeSpan.FromSeconds(5)))
     {
@@ -159,7 +194,7 @@ public sealed class ImageService : IImageService
         DefaultRequestHeaders = { { "User-Agent", "LucyAPI/2.0 (+https://lucyapi.snowcapsystems.com)" } }
     };
 
-    private async Task<(byte[] Bytes, string Description)> LoadSourceImageAsync(
+    private async Task<(ValidatedImage Image, string Description)> LoadSourceImageAsync(
         int userId, int? imageId, string? imageUrl, CancellationToken ct)
     {
         if (imageId.HasValue)
@@ -170,7 +205,7 @@ public sealed class ImageService : IImageService
             if (!File.Exists(filepath))
                 throw new KeyNotFoundException($"Image file not found on disk for image_id={imageId.Value}");
             var bytes = await File.ReadAllBytesAsync(filepath, ct);
-            return (bytes, $"image_id={imageId.Value}");
+            return (ImageValidator.Validate(bytes, MaxGeneratedImageBytes), $"image_id={imageId.Value}");
         }
 
         if (!string.IsNullOrEmpty(imageUrl))
@@ -194,32 +229,13 @@ public sealed class ImageService : IImageService
             var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
             if (bytes.Length > MaxSourceImageBytes)
                 throw new InvalidOperationException("image_url is larger than 20 MB");
-            return (bytes, $"url={imageUrl}");
+            return (ImageValidator.Validate(bytes, MaxSourceImageBytes), $"url={imageUrl}");
         }
 
         throw new InvalidOperationException("Provide either image_id or image_url");
     }
 
-    private static string MakeFilename()
-    {
-        var ts = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-        var hash = Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant();
-        return $"gen_{ts}_{hash}.png";
-    }
-
-    private static (int? Width, int? Height) GetImageDimensions(byte[] imageBytes)
-    {
-        // Simple PNG header parser: width at bytes 16-19, height at bytes 20-23 (big-endian)
-        if (imageBytes.Length >= 24 &&
-            imageBytes[0] == 0x89 && imageBytes[1] == 0x50 &&
-            imageBytes[2] == 0x4E && imageBytes[3] == 0x47)
-        {
-            var width = (imageBytes[16] << 24) | (imageBytes[17] << 16) |
-                        (imageBytes[18] << 8) | imageBytes[19];
-            var height = (imageBytes[20] << 24) | (imageBytes[21] << 16) |
-                         (imageBytes[22] << 8) | imageBytes[23];
-            return (width, height);
-        }
-        return (null, null);
-    }
+    /// <summary>Random name + the image's real extension. Avoids same-second collisions; not for secrecy (images are public).</summary>
+    private static string MakeFilename(string extension) =>
+        "img_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant() + extension;
 }
