@@ -149,6 +149,7 @@ public sealed class McpToolDispatcher(
             "revoke_share" => await HandleRevokeShare(caller, args, ct),
             "get_shared_by_me" => await HandleGetSharedByMe(caller, ct),
             "get_shared_to_me" => await HandleGetSharedToMe(caller, ct),
+            "check_access" => await HandleCheckAccess(caller, args, ct),
 
             // --- Sessions (opened by get_context) ---
             "set_session_description" => await HandleSetSessionDescription(caller, args, ct),
@@ -182,6 +183,7 @@ public sealed class McpToolDispatcher(
             "upload_image" => await HandleUploadImage(caller, args, ct),
             "analyze_image" => await HandleAnalyzeImage(caller, args, ct),
             "list_images" => await HandleListImages(caller, args, ct),
+            "get_image" => await HandleGetImage(caller, args, ct),
             "keep_image" => await HandleKeepImage(caller, args, ct),
             "delete_image" => await HandleDeleteImage(caller, args, ct),
             "cleanup_images" => await HandleCleanupImages(caller, ct),
@@ -621,6 +623,9 @@ public sealed class McpToolDispatcher(
         var wikiId = GetInt(args, "wiki_id");
         var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
         if (wiki is null) return Error("Wiki not found");
+
+        wiki.DocumentUrl = documentLinks.CreateWikiUrl(wikiId, caller.UserId);
+
         var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
         var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
         return "{\"wiki\":" + Serialize(wiki, AppJsonSerializerContext.Default.Wiki) +
@@ -753,6 +758,14 @@ public sealed class McpToolDispatcher(
     {
         var items = await shareService.GetSharedToMeAsync(caller.UserId, ct);
         return "{\"shared\":" + Serialize(items, AppJsonSerializerContext.Default.ListShareRecord) + "}";
+    }
+
+    private async Task<string> HandleCheckAccess(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var objectTypeId = GetInt(args, "object_type_id");
+        var objectId = GetInt(args, "object_id");
+        var result = await shareService.CheckPermissionAsync(caller.UserId, objectTypeId, objectId, ct);
+        return Serialize(result, AppJsonSerializerContext.Default.SharePermissionCheck);
     }
 
     // ===============================================================
@@ -991,14 +1004,24 @@ public sealed class McpToolDispatcher(
         if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("keep", out var keepProp) && keepProp.ValueKind != JsonValueKind.Null)
             keep = keepProp.GetBoolean();
         var limit = GetInt(args, "limit", 50);
-        var items = await imageService.ListAsync(caller.UserId, keep, limit, 0, ct);
+        var offset = GetNullableInt(args, "offset") ?? 0;
+        if (offset < 0) return Error("offset must be 0 or greater");
+        var items = await imageService.ListAsync(caller.UserId, keep, limit, offset, ct);
         return "{\"images\":" + Serialize(items, AppJsonSerializerContext.Default.ListImageResponse) + "}";
+    }
+
+    private async Task<string> HandleGetImage(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var imageId = GetInt(args, "image_id");
+        var result = await imageService.GetAsync(caller.UserId, imageId, ct);
+        return result is null ? Error("Image not found") : Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
     }
 
     private async Task<string> HandleKeepImage(Agent caller, JsonElement args, CancellationToken ct)
     {
         var imageId = GetInt(args, "image_id");
-        var result = await imageService.UpdateKeepAsync(caller.UserId, imageId, true, ct);
+        var keep = GetBool(args, "keep", true);
+        var result = await imageService.UpdateKeepAsync(caller.UserId, imageId, keep, ct);
         return result is null ? Error("Image not found") : Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
     }
 
@@ -1221,7 +1244,7 @@ public sealed class McpToolDispatcher(
     private static string Esc(string s) => McpEndpoints.EscapeJsonString(s);
 
     // ===============================================================
-    //  Tool Definitions (86 tools)
+    //  Tool Definitions (88 tools)
     // ===============================================================
 
     private static string BuildToolListJson(bool includeAgentKey)
@@ -1430,7 +1453,8 @@ public sealed class McpToolDispatcher(
             "", "");
 
         Tool("get_wiki",
-            "Wiki header with section tree (includes tags and updated_at).",
+            "Wiki header with section tree (includes tags and updated_at). The wiki's document_url is a signed " +
+            "link to its HTML document, valid 24 hours.",
             _WK, "\"wiki_id\"");
 
         Tool("create_wiki",
@@ -1489,6 +1513,13 @@ public sealed class McpToolDispatcher(
         Tool("get_shared_to_me",
             "List all objects other users have shared with you.",
             "", "");
+
+        Tool("check_access",
+            "Check your access to an object: has_access and permission_level " +
+            "(3 = owner or admin share, 2 = read-write, 1 = read-only, 0 = none).",
+            "\"object_type_id\":{\"type\":\"integer\",\"description\":\"1=project, 2=hint category (root hint ID), 3=wiki\"}," +
+            "\"object_id\":{\"type\":\"integer\",\"description\":\"ID of the object to check\"}",
+            "\"object_type_id\",\"object_id\"");
 
         // --- Sessions ---
         Tool("set_session_description",
@@ -1608,12 +1639,19 @@ public sealed class McpToolDispatcher(
         Tool("list_images",
             "List generated images with optional keep filter.",
             "\"keep\":{\"type\":\"boolean\",\"description\":\"Filter by keep flag\"}," +
-            "\"limit\":{\"type\":\"integer\",\"description\":\"Max results (default 50)\"}",
+            "\"limit\":{\"type\":\"integer\",\"description\":\"Max results (default 50)\"}," +
+            "\"offset\":{\"type\":\"integer\",\"description\":\"Results to skip, for paging (default 0)\"}",
             "");
 
+        Tool("get_image",
+            "Get one of your images by ID (same fields as list_images).",
+            "\"image_id\":{\"type\":\"integer\",\"description\":\"Image ID\"}", "\"image_id\"");
+
         Tool("keep_image",
-            "Mark an image as keep=true to protect from cleanup.",
-            "\"image_id\":{\"type\":\"integer\",\"description\":\"Image ID to keep\"}", "\"image_id\"");
+            "Set an image's keep flag: keep=true (default) protects it from cleanup_images, keep=false releases it.",
+            "\"image_id\":{\"type\":\"integer\",\"description\":\"Image ID\"}," +
+            "\"keep\":{\"type\":\"boolean\",\"description\":\"Keep flag to set (default true)\"}",
+            "\"image_id\"");
 
         Tool("delete_image",
             "Delete an image file and DB row.",

@@ -1,3 +1,4 @@
+using LucyAPI.Api.Auth;
 using LucyAPI.Api.Extensions;
 using LucyAPI.Api.Models;
 using LucyAPI.Services.DTOs;
@@ -8,6 +9,11 @@ namespace LucyAPI.Api.Endpoints;
 
 public static class WikiEndpoints
 {
+    private const string DocumentLinkExpiredHtml =
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        + "<title>Link expired</title></head><body style=\"font-family:Lexend,system-ui,sans-serif;margin:2rem;\">"
+        + "<h1>This link has expired or isn't valid</h1><p>Wiki links last 24 hours. Ask for a fresh one.</p></body></html>";
+
     public static void MapWikiEndpoints(this WebApplication app)
     {
         app.MapGet("/wikis", async (
@@ -25,11 +31,14 @@ public static class WikiEndpoints
             HttpContext ctx,
             IWikiService wikiService,
             IWikiSectionService wikiSectionService,
+            DocumentLinkSigner documentLinks,
             CancellationToken ct) =>
         {
             var caller = ctx.GetAgentContext();
             var wiki = await wikiService.GetAsync(wikiId, caller.UserId, ct);
             if (wiki is null) return Results.NotFound();
+
+            wiki.DocumentUrl = documentLinks.CreateWikiUrl(wikiId, caller.UserId);
 
             var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
@@ -49,7 +58,31 @@ public static class WikiEndpoints
 
             var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
-            var html = HtmlDocumentRenderer.RenderWikiDocument(tree);
+            var html = HtmlDocumentRenderer.RenderWikiDocument(wiki, tree);
+            return Results.Content(html, "text/html");
+        });
+
+        // Public (see ApiKeyAuthMiddleware): authenticated by the 24h signature from DocumentLinkSigner,
+        // so the link works in a phone browser with no credential in the URL.
+        app.MapGet("/doc/wikis/{wikiId:int}", async (
+            int wikiId,
+            int? u,
+            long? exp,
+            string? sig,
+            IWikiService wikiService,
+            IWikiSectionService wikiSectionService,
+            DocumentLinkSigner documentLinks,
+            CancellationToken ct) =>
+        {
+            if (u is null || exp is null || !documentLinks.IsValidWiki(wikiId, u.Value, exp.Value, sig))
+                return Results.Content(DocumentLinkExpiredHtml, "text/html", statusCode: 403);
+
+            var wiki = await wikiService.GetAsync(wikiId, u.Value, ct);
+            if (wiki is null) return Results.NotFound();
+
+            var sections = await wikiSectionService.GetSectionsAsync(u.Value, wikiId, ct);
+            var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
+            var html = HtmlDocumentRenderer.RenderWikiDocument(wiki, tree);
             return Results.Content(html, "text/html");
         });
 

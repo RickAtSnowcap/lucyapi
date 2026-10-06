@@ -17,7 +17,7 @@ public static class HtmlDocumentRenderer
         var sectionCount = CountSections(tree);
         var meta = $"Status: {Encode(project.StatusLabel)} &middot; Generated: {now} &middot; Sections: {sectionCount}";
 
-        var toc = tree.Count > 0 ? BuildToc(tree) : "";
+        var toc = tree.Count > 0 ? BuildToc(tree, s => s.SectionId, s => s.Title) : "";
         var body = string.Join("\n", tree.Select(node => RenderSectionHtml(node, 2)));
 
         return HtmlTemplate
@@ -28,14 +28,32 @@ public static class HtmlDocumentRenderer
             .Replace("{body}", body);
     }
 
-    public static string RenderWikiDocument(object sections)
-        => throw new NotImplementedException("Wiki document rendering not yet implemented");
+    public static string RenderWikiDocument(Wiki wiki, List<TreeNode<WikiSection>> tree)
+    {
+        var descriptionHtml = string.IsNullOrEmpty(wiki.Description) ? "" :
+            $"""<div class="description">{RenderDescription(wiki.Description)}</div>""";
+
+        var now = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm") + " UTC";
+        var updated = wiki.UpdatedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC";
+        var sectionCount = CountSections(tree);
+        var meta = $"Updated: {updated} &middot; Generated: {now} &middot; Sections: {sectionCount}";
+
+        var toc = tree.Count > 0 ? BuildToc(tree, s => s.SectionId, s => s.Title) : "";
+        var body = string.Join("\n", tree.Select(node => RenderWikiSectionHtml(node, 2)));
+
+        return HtmlTemplate
+            .Replace("{title}", Encode(wiki.Title))
+            .Replace("{description_html}", descriptionHtml)
+            .Replace("{meta}", meta)
+            .Replace("{toc}", toc)
+            .Replace("{body}", body);
+    }
 
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static string Encode(string? text) => WebUtility.HtmlEncode(text ?? "");
 
-    private static int CountSections(List<TreeNode<ProjectSection>> tree)
+    private static int CountSections<T>(List<TreeNode<T>> tree)
     {
         var count = 0;
         foreach (var node in tree) { count++; count += CountSections(node.Children); }
@@ -155,14 +173,31 @@ public static class HtmlDocumentRenderer
         return sb.ToString();
     }
 
-    private static string BuildToc(List<TreeNode<ProjectSection>> tree, int level = 0)
+    private static string RenderWikiSectionHtml(TreeNode<WikiSection> node, int level)
+    {
+        var s = node.Data;
+        var tag = $"h{Math.Min(level, 6)}";
+        var sb = new StringBuilder();
+        sb.AppendLine($"""<section id="section-{s.SectionId}">""");
+        sb.AppendLine($"<{tag}>{Encode(s.Title)}</{tag}>");
+        if (!string.IsNullOrEmpty(s.Description))
+            sb.AppendLine($"""<div class="section-body">{RenderDescription(s.Description)}</div>""");
+        if (s.Tags.Length > 0)
+            sb.AppendLine($"""<p class="file-path">Tags: {Encode(string.Join(", ", s.Tags))}</p>""");
+        foreach (var child in node.Children)
+            sb.AppendLine(RenderWikiSectionHtml(child, level + 1));
+        sb.AppendLine("</section>");
+        return sb.ToString();
+    }
+
+    private static string BuildToc<T>(List<TreeNode<T>> tree, Func<T, int> id, Func<T, string> title, int level = 0)
     {
         var items = new StringBuilder();
         foreach (var node in tree)
         {
-            items.AppendLine($"""<li><a href="#section-{node.Data.SectionId}">{Encode(node.Data.Title)}</a>""");
+            items.AppendLine($"""<li><a href="#section-{id(node.Data)}">{Encode(title(node.Data))}</a>""");
             if (node.Children.Count > 0)
-                items.AppendLine(BuildToc(node.Children, level + 1));
+                items.AppendLine(BuildToc(node.Children, id, title, level + 1));
             items.AppendLine("</li>");
         }
         return "<ul>\n" + items + "\n</ul>";

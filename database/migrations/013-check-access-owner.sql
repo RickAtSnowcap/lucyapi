@@ -1,0 +1,8 @@
+-- 013-check-access-owner.sql
+-- check_access MCP tool / GET /sharing/check (LucyAPI project #3 §479, 2026-10-06; Rick's call): report the caller's
+-- full access level, owner = 3, instead of only shares made to the caller. fn_share_check_permission now delegates
+-- to fn_access_level. Same signature and return type, so CREATE OR REPLACE keeps the existing grant.
+--
+-- Apply (objects owned by leaddev — hint #189), in ONE transaction:
+--   ( echo 'SET ROLE leaddev;'; echo 'BEGIN;'; cat migrations/013-check-access-owner.sql \
+--       functions/fn_share_check_permission.sql; echo 'COMMIT;' ) | sudo -u postgres psql -d lucyapi -v ON_ERROR_STOP=1

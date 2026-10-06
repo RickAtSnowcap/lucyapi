@@ -194,6 +194,7 @@ public static class AdminResourcesEndpoints
             HttpContext ctx,
             IWikiService wikiService,
             IWikiSectionService wikiSectionService,
+            DocumentLinkSigner documentLinks,
             CancellationToken ct) =>
         {
             var caller = ctx.GetUserContext();
@@ -202,6 +203,9 @@ public static class AdminResourcesEndpoints
 
             var sections = await wikiSectionService.GetSectionsAsync(caller.UserId, wikiId, ct);
             var tree = TreeBuilder.Build(sections, s => s.SectionId, s => s.ParentId);
+
+            wiki.DocumentUrl = documentLinks.CreateWikiUrl(wikiId, caller.UserId);
+
             return Results.Ok(new WikiDetailResponse { Wiki = wiki, Sections = tree });
         });
 

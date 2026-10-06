@@ -8,4 +8,5 @@ public sealed class Wiki
     public DateTimeOffset UpdatedAt { get; set; }
     public string Access { get; set; } = "";
     public int PermissionLevel { get; set; }
+    public string? DocumentUrl { get; set; }
 }
