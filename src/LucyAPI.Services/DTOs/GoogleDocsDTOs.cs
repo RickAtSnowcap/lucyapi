@@ -1,32 +1,5 @@
 namespace LucyAPI.Services.DTOs;
 
-public sealed class CreateDocRequest
-{
-    public string Title { get; set; } = "";
-    public string? Body { get; set; }
-}
-
-public sealed class UpdateDocRequest
-{
-    public string Content { get; set; } = "";
-}
-
-public sealed class AppendDocRequest
-{
-    public string Content { get; set; } = "";
-}
-
-public sealed class CreateFolderRequest
-{
-    public string Name { get; set; } = "";
-    public string? ParentFolderId { get; set; }
-}
-
-public sealed class MoveFileRequest
-{
-    public string TargetFolderId { get; set; } = "";
-}
-
 public sealed class DocResponse
 {
     public string DocumentId { get; set; } = "";

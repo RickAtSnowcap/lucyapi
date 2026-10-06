@@ -2,7 +2,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using LucyAPI.Api.Auth;
-using LucyAPI.Api.Middleware;
 using LucyAPI.Data.Models;
 using LucyAPI.Services.DTOs;
 using LucyAPI.Services.Interfaces;
@@ -39,48 +38,18 @@ public sealed class McpToolDispatcher(
     };
 
     private string? _toolListCache;
-    private string? _connectorToolListCache;
-
-    // True while dispatching for an OAuth-bound agent (/mcp/connector): the token names exactly one
-    // agent, so agent_name may not switch to another agent of the same user.
-    private static readonly AsyncLocal<bool> s_boundToAgent = new();
 
     // ---------------------------------------------------------------
     //  Tool list (cached JSON for tools/list response)
     // ---------------------------------------------------------------
-    public string GetToolListJson(bool forConnector = false)
-    {
-        return forConnector
-            ? _connectorToolListCache ??= BuildToolListJson(includeAgentKey: false)
-            : _toolListCache ??= BuildToolListJson(includeAgentKey: true);
-    }
+    public string GetToolListJson() => _toolListCache ??= BuildToolListJson();
 
     // ---------------------------------------------------------------
     //  Dispatch
     // ---------------------------------------------------------------
-    public async Task<string> DispatchAsync(string toolName, JsonElement args, CancellationToken ct, Agent? boundAgent = null)
+    // The caller is the agent bound to the OAuth bearer token (/mcp/connector); there is no other way in.
+    public async Task<string> DispatchAsync(string toolName, JsonElement args, Agent caller, CancellationToken ct)
     {
-        Agent? caller;
-        if (boundAgent is not null)
-        {
-            // OAuth connector: identity comes from the bearer token; agent_key is not used.
-            caller = boundAgent;
-            s_boundToAgent.Value = true;
-        }
-        else
-        {
-            // Auth: extract agent_key, resolve caller
-            s_boundToAgent.Value = false;
-            var agentKey = GetString(args, "agent_key");
-            if (string.IsNullOrEmpty(agentKey))
-                return Error("agent_key is required for authentication");
-
-            caller = await agentService.GetByApiKeyAsync(agentKey, ct);
-            KeyUsageLog.Record("mcp-legacy", caller is null ? "invalid" : "ok", caller?.AgentName, toolName);
-            if (caller is null)
-                return Error("Invalid agent_key — agent not found");
-        }
-
         return toolName switch
         {
             // --- System ---
@@ -230,7 +199,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetContext(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var doc = await contextService.GetFullAsync(agentId, caller.UserId, ct);
         if (doc is null) return "{}";
@@ -239,7 +208,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var (agentId, agentName) = await ResolveAgent(caller, args, ct);
+        var (agentId, agentName) = ResolveAgent(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var items = await alwaysLoadService.GetAllAsync(agentId, ct);
         var tree = TreeBuilder.Build(items, i => i.Pkid, i => i.ParentId);
@@ -249,7 +218,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetAlwaysLoadItem(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var pkid = GetInt(args, "pkid");
         var items = await alwaysLoadService.GetItemAsync(agentId, pkid, ct);
@@ -261,7 +230,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleCreateAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var req = new CreateAlwaysLoadRequest
         {
@@ -275,7 +244,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleUpdateAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var req = new UpdateAlwaysLoadRequest
         {
@@ -288,7 +257,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleDeleteAlwaysLoad(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var count = await alwaysLoadService.DeleteAsync(agentId, GetInt(args, "pkid"), ct);
         return "{\"deleted_count\":" + count + "}";
@@ -300,7 +269,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetMemories(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var (agentId, agentName) = await ResolveAgent(caller, args, ct);
+        var (agentId, agentName) = ResolveAgent(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var items = await memoryService.GetAllAsync(agentId, ct);
         var json = Serialize(items, AppJsonSerializerContext.Default.ListMemory);
@@ -309,7 +278,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetMemory(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var item = await memoryService.GetOneAsync(agentId, GetInt(args, "pkid"), ct);
         return item is null ? Error("Not found") : Serialize(item, AppJsonSerializerContext.Default.Memory);
@@ -317,7 +286,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleCreateMemory(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var req = new CreateMemoryRequest
         {
@@ -330,7 +299,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleUpdateMemory(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var req = new UpdateMemoryRequest
         {
@@ -343,7 +312,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleDeleteMemory(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var count = await memoryService.DeleteAsync(agentId, GetInt(args, "pkid"), ct);
         return "{\"deleted_count\":" + count + "}";
@@ -355,7 +324,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetPreferences(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var (agentId, agentName) = await ResolveAgent(caller, args, ct);
+        var (agentId, agentName) = ResolveAgent(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var items = await preferenceService.GetTopLevelAsync(agentId, ct);
         var json = Serialize(items, AppJsonSerializerContext.Default.ListPreferenceTopLevel);
@@ -364,7 +333,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetPreference(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var items = await preferenceService.GetBranchAsync(agentId, GetInt(args, "pkid"), ct);
         var tree = TreeBuilder.Build(items, i => i.Pkid, i => i.ParentId, items.Count > 0 ? items[0].ParentId : 0);
@@ -374,7 +343,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleCreatePreference(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var req = new CreatePreferenceRequest
         {
@@ -388,7 +357,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleUpdatePreference(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var req = new UpdatePreferenceRequest
         {
@@ -401,7 +370,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleDeletePreference(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var count = await preferenceService.DeleteAsync(agentId, GetInt(args, "pkid"), ct);
         return "{\"deleted_count\":" + count + "}";
@@ -883,7 +852,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleListHandoffs(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var items = await handoffService.ListPendingAsync(agentId, ct);
         return "{\"handoffs\":" + Serialize(items, AppJsonSerializerContext.Default.ListHandoff) + "}";
@@ -891,7 +860,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleGetHandoff(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var item = await handoffService.GetAsync(agentId, GetInt(args, "handoff_id"), ct);
         return item is null ? Error("Handoff not found") : Serialize(item, AppJsonSerializerContext.Default.Handoff);
@@ -914,7 +883,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandlePickupHandoff(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var result = await handoffService.PickupAsync(agentId, GetInt(args, "handoff_id"), ct);
         return result is null ? Error("Handoff not found or already picked up") : Serialize(result, AppJsonSerializerContext.Default.HandoffPickedUp);
@@ -922,7 +891,7 @@ public sealed class McpToolDispatcher(
 
     private async Task<string> HandleDeleteHandoff(Agent caller, JsonElement args, CancellationToken ct)
     {
-        var agentId = await ResolveAgentId(caller, args, ct);
+        var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
         var count = await handoffService.DeleteAsync(agentId, GetInt(args, "handoff_id"), ct);
         return "{\"deleted_count\":" + count + "}";
@@ -1150,17 +1119,16 @@ public sealed class McpToolDispatcher(
     //  Helpers: Agent Resolution
     // ===============================================================
 
-    private async Task<int> ResolveAgentId(Agent caller, JsonElement args, CancellationToken ct)
+    // The token names exactly one agent, so agent_name may only name the caller (or be omitted):
+    // acting as another agent, even one of the same user, is refused as "not found".
+    private static int ResolveAgentId(Agent caller, JsonElement args)
     {
         var agentName = GetString(args, "agent_name");
         if (string.IsNullOrEmpty(agentName)) return caller.AgentId;
-        if (s_boundToAgent.Value)
-            return string.Equals(agentName, caller.AgentName, StringComparison.OrdinalIgnoreCase) ? caller.AgentId : -1;
-        var target = await agentService.GetByNameAsync(agentName, ct);
-        if (target is null || target.UserId != caller.UserId) return -1;
-        return target.AgentId;
+        return string.Equals(agentName, caller.AgentName, StringComparison.OrdinalIgnoreCase) ? caller.AgentId : -1;
     }
 
+    // create_handoff only: the named agent is the recipient, which may be any agent of the same user.
     private async Task<int> ResolveRecipientAgentId(Agent caller, JsonElement args, CancellationToken ct)
     {
         var agentName = GetString(args, "agent_name");
@@ -1170,16 +1138,12 @@ public sealed class McpToolDispatcher(
         return target.AgentId;
     }
 
-    private async Task<(int AgentId, string AgentName)> ResolveAgent(Agent caller, JsonElement args, CancellationToken ct)
+    private static (int AgentId, string AgentName) ResolveAgent(Agent caller, JsonElement args)
     {
         var agentName = GetString(args, "agent_name");
         if (string.IsNullOrEmpty(agentName)) return (caller.AgentId, caller.AgentName);
-        if (s_boundToAgent.Value)
-            return string.Equals(agentName, caller.AgentName, StringComparison.OrdinalIgnoreCase)
-                ? (caller.AgentId, caller.AgentName) : (-1, "");
-        var target = await agentService.GetByNameAsync(agentName, ct);
-        if (target is null || target.UserId != caller.UserId) return (-1, "");
-        return (target.AgentId, agentName);
+        return string.Equals(agentName, caller.AgentName, StringComparison.OrdinalIgnoreCase)
+            ? (caller.AgentId, caller.AgentName) : (-1, "");
     }
 
     // ===============================================================
@@ -1247,10 +1211,9 @@ public sealed class McpToolDispatcher(
     //  Tool Definitions (88 tools)
     // ===============================================================
 
-    private static string BuildToolListJson(bool includeAgentKey)
+    private static string BuildToolListJson()
     {
         // Reusable schema fragments
-        const string _K = "\"agent_key\":{\"type\":\"string\",\"description\":\"Your agent API key for authentication\"}";
         const string _A = "\"agent_name\":{\"type\":\"string\",\"description\":\"Agent name (e.g. 'my-agent')\"}";
         const string _ID = "\"pkid\":{\"type\":\"integer\",\"description\":\"Node/item ID\"}";
         const string _T = "\"title\":{\"type\":\"string\",\"description\":\"Title\"}";
@@ -1276,22 +1239,11 @@ public sealed class McpToolDispatcher(
             sb.Append("{\"name\":\"").Append(name)
               .Append("\",\"description\":\"").Append(Esc(desc))
               .Append("\",\"inputSchema\":{\"type\":\"object\",\"properties\":{");
-            if (includeAgentKey)
-            {
-                sb.Append(_K);
-                if (propsJson.Length > 0) sb.Append(',').Append(propsJson);
-                sb.Append("},\"required\":[\"agent_key\"");
-                if (reqJson.Length > 0) sb.Append(',').Append(reqJson);
-            }
-            else
-            {
-                // Connector: the token identifies the agent — no agent_key, and agent_name is optional
-                // (it defaults to, and may only name, the bound agent).
-                sb.Append(propsJson).Append("},\"required\":[");
-                // Exception: create_handoff's agent_name is the recipient, so it stays required.
-                sb.Append(name == "create_handoff" ? reqJson : string.Join(',', reqJson.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                    .Where(r => r.Trim() != "\"agent_name\"")));
-            }
+            // The token identifies the agent, so agent_name is optional (it defaults to, and may only name,
+            // the bound agent). Exception: create_handoff's agent_name is the recipient, so it stays required.
+            sb.Append(propsJson).Append("},\"required\":[");
+            sb.Append(name == "create_handoff" ? reqJson : string.Join(',', reqJson.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Where(r => r.Trim() != "\"agent_name\"")));
             sb.Append("]}}");
         }
 

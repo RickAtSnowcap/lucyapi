@@ -1,6 +1,6 @@
 -- fn_oauth_access_resolve.sql
--- Resolves a bearer access token to agent + user identity — the OAuth counterpart of
--- fn_agent_get_by_api_key. Valid only if unexpired, unrevoked, and issued for p_resource
+-- Resolves a bearer access token to agent + user identity (the only way agents authenticate).
+-- Valid only if unexpired, unrevoked, and issued for p_resource
 -- (audience check). last_used_at is touched at most once a minute to avoid a write per call.
 
 CREATE OR REPLACE FUNCTION lucyapi.fn_oauth_access_resolve(p_token_hash TEXT, p_resource TEXT)

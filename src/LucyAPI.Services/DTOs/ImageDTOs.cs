@@ -30,11 +30,6 @@ public sealed class UploadImageRequest
     public bool Keep { get; set; } = true;
 }
 
-public sealed class KeepImageRequest
-{
-    public bool Keep { get; set; }
-}
-
 public sealed class ImageResponse
 {
     public int ImageId { get; set; }

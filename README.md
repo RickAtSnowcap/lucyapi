@@ -47,7 +47,7 @@ This is a fully Native AOT application. That means:
 
 ### Authentication
 
-API key auth via `X-Api-Key` header or `agent_key` query parameter. Each key maps to an agent + user identity. Public endpoints: `/health`, `/time`.
+Agents reach LucyAPI only through the MCP connector at `/mcp/connector`, authenticated by an OAuth bearer token (LucyAPI is its own authorization server: `/.well-known/*`, `/oauth/*`). The token names one agent + user identity. LucyAdmin uses JWT (`/auth/*`, `/admin/*`). Public endpoints: `/health`, `/time`, and the signed, 24-hour document links `/doc/projects/{id}` and `/doc/wikis/{id}`.
 
 ### Database
 
@@ -58,25 +58,11 @@ PostgreSQL with all business logic in PL/pgSQL functions under the `lucyapi` sch
 | Group | Endpoints |
 |-------|-----------|
 | Utilities | `GET /health`, `GET /time` |
-| Context | `GET /context` |
-| Always Load | `GET/POST/PUT/DELETE /agents/{name}/always-load[/{id}]` |
-| Memories | `GET/POST/PUT/DELETE /agents/{name}/memories[/{id}]` |
-| Preferences | `GET/POST/PUT/DELETE /agents/{name}/preferences[/{id}]` |
-| Projects | `GET /project-statuses`, `GET/POST/PUT/DELETE /projects[/{id}]` |
-| Sections | `GET/POST/PUT/DELETE /projects/{id}/sections[/{id}]` |
-| Wikis | `GET/POST/PUT/DELETE /wikis[/{id}]`, `GET /wikis/{id}/document` |
-| Wiki Sections | `GET/POST/PUT/DELETE /wikis/{id}/sections[/{id}]` |
-| Wiki Tags | `GET /wikis/{id}/tags`, `GET /wikis/tags/{tag}` |
-| Hints | `GET/POST/PUT/DELETE /hints[/{id}]`, `POST /hints/categories` |
-| Secrets | `GET/PUT/DELETE /secrets[/{key}]` |
-| Sharing | `POST/DELETE /sharing`, `GET /sharing/by-me`, `GET /sharing/to-me`, `GET /sharing/check` |
-| Handoffs | `GET/POST/DELETE /agents/{name}/handoffs[/{id}]`, `PUT .../pickup` |
-| Nudges | `GET/POST/PUT/DELETE /nudges[/{id}]` |
-| Images | `POST /genimage[/edit\|/analyze]`, `GET/DELETE/PATCH /images[/{id}]` |
-| Google Docs | `POST/GET/PUT/PATCH /google/docs[/{id}]`, `GET/POST/PUT/DELETE /google/drive/files[/{id}]` |
-| Save Notes | `GET/POST /save/{token}` |
-| Boot | `GET /boot` |
-| Admin | `POST /admin/auth/*`, `GET/POST/PUT/DELETE /admin/agents[/{id}]`, `GET/PUT /admin/resources` |
+| MCP connector | `POST/GET/DELETE /mcp/connector` (JSON-RPC: `initialize`, `tools/list`, `tools/call`) |
+| OAuth | `GET /.well-known/oauth-protected-resource[/mcp/connector]`, `GET /.well-known/oauth-authorization-server`, `POST /oauth/register`, `GET/POST /oauth/authorize`, `POST /oauth/token` |
+| Documents | `GET /doc/projects/{id}`, `GET /doc/wikis/{id}` (signed links from `get_project` / `get_wiki`) |
+| Admin auth | `POST /auth/login`, `POST /auth/refresh`, `GET /auth/me`, `PUT /auth/password` |
+| Admin | `/admin/agents/{name}/...`, `/admin/projects`, `/admin/wikis`, `/admin/hints`, `/admin/hint-categories`, `/admin/secrets`, `/admin/sharing`, `/admin/nudges`, `/admin/images`, `/admin/users`, `/admin/project-statuses`, `/admin/dashboard` |
 
 ## Running
 

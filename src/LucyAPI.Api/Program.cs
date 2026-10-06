@@ -4,7 +4,6 @@ using LucyAPI.Api.Auth;
 using LucyAPI.Api.Endpoints;
 using LucyAPI.Api.Endpoints.Admin;
 using LucyAPI.Api.Mcp;
-using LucyAPI.Api.Middleware;
 using LucyAPI.Api.OAuth;
 using LucyAPI.Data.Repositories;
 using LucyAPI.Services.Implementations;
@@ -163,27 +162,11 @@ var app = builder.Build();
 // --- Middleware ---
 app.UseCors();
 app.UseMiddleware<JwtAuthMiddleware>();
-app.UseMiddleware<ApiKeyAuthMiddleware>();
 
 // --- Endpoints ---
 app.MapHealthEndpoints();
 app.MapTimeEndpoints();
-app.MapContextEndpoints();
-app.MapAlwaysLoadEndpoints();
-app.MapMemoryEndpoints();
-app.MapPreferenceEndpoints();
-app.MapHandoffEndpoints();
-app.MapProjectEndpoints();
-app.MapSectionEndpoints();
-app.MapWikiEndpoints();
-app.MapWikiSectionEndpoints();
-app.MapWikiTagEndpoints();
-app.MapHintEndpoints();
-app.MapSecretEndpoints();
-app.MapShareEndpoints();
-app.MapGoogleDocsEndpoints();
-app.MapImageEndpoints();
-app.MapNudgeEndpoints();
+app.MapDocumentEndpoints();
 app.MapMcpEndpoints();
 app.MapOAuthEndpoints();
 
