@@ -5,7 +5,7 @@ Agents have no keys (migration 014): the script mints OAuth access tokens for it
 temporary client, the same way /oauth/token stores them (SHA-256 hashes only). Prints no secrets.
 Also covers image uploads (migration 010, project #3 §450): upload_image + /admin/images/upload, WebP → PNG,
 GIF stored byte-for-byte, and rejection of bad magic bytes, truncated, oversize and over-pixel-cap images;
-handoff isolation between two agents of the same user; and that key auth (legacy /mcp/, REST routes) is gone.
+handoffs between two agents of the same user (creator edit/delete while pending, migration 015); and that key auth (legacy /mcp/, REST routes) is gone.
 Usage: ownership_e2e.py [base_url]   (default http://127.0.0.1:8100; needs passwordless sudo for psql as postgres)"""
 import base64, hashlib, json, os, re, secrets, struct, subprocess, sys, urllib.request, urllib.error, uuid, zlib
 
@@ -333,30 +333,75 @@ try:
     if jwt:
         denied_http("admin list another user's agent sessions", A_("GET", "/admin/agents/zzown-agent/sessions"))
 
-    # ---------- handoff isolation: two agents of the SAME user ----------
+    # ---------- handoffs: two agents of the SAME user (migration 015: creators may edit/delete while pending) ----------
+    def ho_ids(resp): return [h["handoff_id"] for h in resp.get("handoffs", [])]
     r = mcp("create_handoff", {"agent_name": "zzown2-agent", "title": "zz handoff", "prompt": "zz"}, A_TOK)
     HO = r.get("handoff_id")
     check("create_handoff to a same-user agent allowed", isinstance(HO, int)
           and psql(f"SELECT agent_id FROM handoffs WHERE handoff_id={HO or 0}") == str(agent_a2), str(r)[:200])
+    check("create_handoff records the creator",
+          psql(f"SELECT created_by_agent_id FROM handoffs WHERE handoff_id={HO or 0}") == str(agent_a))
     check("create_handoff to another user's agent refused",
           "error" in mcp("create_handoff", {"agent_name": "zzown-agent", "title": "pwn", "prompt": "x"}, B_TOK))
     if HO:
-        for tool in ("get_handoff", "pickup_handoff", "delete_handoff"):
+        for tool in ("get_handoff", "pickup_handoff", "delete_handoff", "update_handoff"):
             check(f"{tool} naming the other agent refused",
-                  "error" in mcp(tool, {"agent_name": "zzown2-agent", "handoff_id": HO}, A_TOK))
+                  "error" in mcp(tool, {"agent_name": "zzown2-agent", "handoff_id": HO, "title": "x"}, A_TOK))
         check("list_handoffs naming the other agent refused", "error" in mcp("list_handoffs", {"agent_name": "zzown2-agent"}, A_TOK))
-        check("get_handoff of the other agent's handoff not found", "error" in mcp("get_handoff", {"handoff_id": HO}, A_TOK))
-        check("pickup_handoff of the other agent's handoff not found", "error" in mcp("pickup_handoff", {"handoff_id": HO}, A_TOK))
-        check("delete_handoff of the other agent's handoff deletes nothing",
-              mcp("delete_handoff", {"handoff_id": HO}, A_TOK).get("deleted_count") == 0)
-        check("sender's list_handoffs excludes it", HO not in [h["handoff_id"] for h in mcp("list_handoffs", {}, A_TOK).get("handoffs", [])])
-        check("handoff still pending after the refusals",
-              psql(f"SELECT count(*) FROM handoffs WHERE handoff_id={HO} AND picked_up_at IS NULL") == "1")
-        check("recipient lists it", HO in [h["handoff_id"] for h in mcp("list_handoffs", {}, A2_TOK).get("handoffs", [])])
-        check("recipient gets it", mcp("get_handoff", {"handoff_id": HO}, A2_TOK).get("prompt") == "zz")
+        check("list_sent_handoffs naming the other agent refused", "error" in mcp("list_sent_handoffs", {"agent_name": "zzown2-agent"}, A_TOK))
+        # the creator (A)
+        r = mcp("get_handoff", {"handoff_id": HO}, A_TOK)
+        check("creator gets its handoff, with to/from", r.get("prompt") == "zz" and r.get("to_agent") == "zzown2-agent"
+              and r.get("from_agent") == "zzown-agent", str(r)[:200])
+        check("creator can't pick it up", "error" in mcp("pickup_handoff", {"handoff_id": HO}, A_TOK))
+        check("sender's list_handoffs excludes it", HO not in ho_ids(mcp("list_handoffs", {}, A_TOK)))
+        r = mcp("list_sent_handoffs", {"pending_only": True}, A_TOK)
+        check("creator's list_sent_handoffs has it", any(h["handoff_id"] == HO and h["to_agent"] == "zzown2-agent"
+              and h["picked_up_at"] is None for h in r.get("handoffs", [])), str(r)[:200])
+        check("update_handoff with nothing to change refused", "error" in mcp("update_handoff", {"handoff_id": HO}, A_TOK))
+        check("update_handoff to an empty title refused", "error" in mcp("update_handoff", {"handoff_id": HO, "title": " "}, A_TOK))
+        r = mcp("update_handoff", {"handoff_id": HO, "prompt": "zz edited"}, A_TOK)
+        check("creator edits it while pending", r.get("status") == "updated", str(r)[:200])
+        check("the edit kept the title and changed the prompt",
+              psql(f"SELECT title || '|' || prompt FROM handoffs WHERE handoff_id={HO}") == "zz handoff|zz edited")
+        # the recipient (A2) and an outsider (B)
+        r = mcp("update_handoff", {"handoff_id": HO, "title": "x"}, A2_TOK)
+        check("recipient can't edit it (names the creator)", "zzown-agent" in r.get("error", ""), str(r)[:200])
+        for tool in ("get_handoff", "update_handoff", "delete_handoff"):
+            r = mcp(tool, {"handoff_id": HO, "title": "x"}, B_TOK)
+            check(f"other user's {tool} not found", "not found" in r.get("error", ""), str(r)[:200])
+        check("handoff still pending and intact after the refusals",
+              psql(f"SELECT title FROM handoffs WHERE handoff_id={HO} AND picked_up_at IS NULL") == "zz handoff")
+        check("recipient lists it, with the sender", any(h["handoff_id"] == HO and h.get("from_agent") == "zzown-agent"
+              for h in mcp("list_handoffs", {}, A2_TOK).get("handoffs", [])))
+        check("recipient gets the edited version", mcp("get_handoff", {"handoff_id": HO}, A2_TOK).get("prompt") == "zz edited")
         r = mcp("pickup_handoff", {"agent_name": "zzown2-agent", "handoff_id": HO}, A2_TOK)
         check("recipient picks it up", r.get("handoff_id") == HO and r.get("picked_up_at"), str(r)[:200])
-        check("recipient deletes it", mcp("delete_handoff", {"handoff_id": HO}, A2_TOK).get("deleted_count") == 1)
+        # after pickup
+        r = mcp("update_handoff", {"handoff_id": HO, "title": "x"}, A_TOK)
+        check("creator can't edit after pickup", "picked up" in r.get("error", ""), str(r)[:200])
+        r = mcp("delete_handoff", {"handoff_id": HO}, A_TOK)
+        check("creator can't delete after pickup", "picked up" in r.get("error", ""), str(r)[:200])
+        check("list_sent_handoffs pending_only drops it", HO not in ho_ids(mcp("list_sent_handoffs", {"pending_only": True}, A_TOK)))
+        check("list_sent_handoffs (all) still shows it", HO in ho_ids(mcp("list_sent_handoffs", {}, A_TOK)))
+        r = mcp("delete_handoff", {"handoff_id": HO}, A2_TOK)
+        check("recipient deletes it after pickup", r.get("status") == "deleted" and r.get("deleted_count") == 1, str(r)[:200])
+    # the creator deletes a pending one
+    HO2 = mcp("create_handoff", {"agent_name": "zzown2-agent", "title": "zz 2", "prompt": "zz"}, A_TOK).get("handoff_id")
+    r = mcp("delete_handoff", {"handoff_id": HO2 or 0}, A_TOK)
+    check("creator deletes its pending handoff", r.get("status") == "deleted"
+          and psql(f"SELECT count(*) FROM handoffs WHERE handoff_id={HO2 or 0}") == "0", str(r)[:200])
+    # a handoff with no recorded creator (pre-015, or admin-created)
+    HO3 = int(psql(f"INSERT INTO handoffs (agent_id, title, prompt) VALUES ({agent_a2}, 'zz legacy', 'zz') RETURNING handoff_id"))
+    r = mcp("update_handoff", {"handoff_id": HO3, "title": "x"}, A2_TOK)
+    check("no-creator handoff: recipient told nobody can edit it", "no recorded creator" in r.get("error", ""), str(r)[:200])
+    check("no-creator handoff: other agent can't see it", "not found" in mcp("get_handoff", {"handoff_id": HO3}, A_TOK).get("error", ""))
+    check("no-creator handoff: recipient deletes it", mcp("delete_handoff", {"handoff_id": HO3}, A2_TOK).get("status") == "deleted")
+    # a self-handoff: creator and recipient at once
+    HO4 = mcp("create_handoff", {"title": "zz self", "prompt": "zz"}, A_TOK).get("handoff_id")
+    check("self-handoff editable while pending", mcp("update_handoff", {"handoff_id": HO4 or 0, "title": "zz self 2"}, A_TOK).get("status") == "updated")
+    mcp("pickup_handoff", {"handoff_id": HO4 or 0}, A_TOK)
+    check("self-handoff deletable after pickup (as recipient)", mcp("delete_handoff", {"handoff_id": HO4 or 0}, A_TOK).get("status") == "deleted")
 
     # ---------- level-2 share (W2): edit + delete sections, not the wiki ----------
     r = mcp("update_wiki_section", {"wiki_id": W2, "section_id": WS2, "title": "edited by L2"}, B_TOK)
@@ -392,7 +437,8 @@ finally:
                  DELETE FROM images WHERE user_id IN {u};
                  DELETE FROM always_load WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
                  DELETE FROM memories WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
-                 DELETE FROM handoffs WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
+                 DELETE FROM handoffs WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u})
+                    OR created_by_agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
                  DELETE FROM sessions WHERE agent_id IN (SELECT agent_id FROM agents WHERE user_id IN {u});
                  DELETE FROM agents WHERE user_id IN {u};
                  DELETE FROM users WHERE username IN ('zzown','zzout');""")

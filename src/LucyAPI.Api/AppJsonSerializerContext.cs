@@ -53,6 +53,7 @@ namespace LucyAPI.Api;
 [JsonSerializable(typeof(List<WikiSection>))]
 [JsonSerializable(typeof(List<WikiTagSearchResult>))]
 [JsonSerializable(typeof(List<Handoff>))]
+[JsonSerializable(typeof(List<HandoffSent>))]
 [JsonSerializable(typeof(List<Hint>))]
 [JsonSerializable(typeof(List<HintCompact>))]
 [JsonSerializable(typeof(List<string>))]

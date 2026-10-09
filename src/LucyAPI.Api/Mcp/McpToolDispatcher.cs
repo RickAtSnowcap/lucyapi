@@ -145,6 +145,8 @@ public sealed class McpToolDispatcher(
             "create_handoff" => await HandleCreateHandoff(caller, args, ct),
             "pickup_handoff" => await HandlePickupHandoff(caller, args, ct),
             "delete_handoff" => await HandleDeleteHandoff(caller, args, ct),
+            "update_handoff" => await HandleUpdateHandoff(caller, args, ct),
+            "list_sent_handoffs" => await HandleListSentHandoffs(caller, args, ct),
 
             // --- Images ---
             "generate_image" => await HandleGenerateImage(caller, args, ct),
@@ -862,8 +864,9 @@ public sealed class McpToolDispatcher(
     {
         var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
-        var item = await handoffService.GetAsync(agentId, GetInt(args, "handoff_id"), ct);
-        return item is null ? Error("Handoff not found") : Serialize(item, AppJsonSerializerContext.Default.Handoff);
+        var handoffId = GetInt(args, "handoff_id");
+        var item = await handoffService.GetAsync(agentId, handoffId, ct);
+        return item is null ? Error(HandoffNotFound(handoffId)) : Serialize(item, AppJsonSerializerContext.Default.Handoff);
     }
 
     private async Task<string> HandleCreateHandoff(Agent caller, JsonElement args, CancellationToken ct)
@@ -877,7 +880,8 @@ public sealed class McpToolDispatcher(
             Title = GetString(args, "title") ?? "",
             Prompt = GetString(args, "prompt") ?? ""
         };
-        var result = await handoffService.CreateAsync(agentId, req, ct);
+        // the caller is recorded as the creator, so it can edit or delete the handoff until it's picked up
+        var result = await handoffService.CreateAsync(agentId, req, caller.AgentId, ct);
         return result is null ? Error("Create failed") : Serialize(result, AppJsonSerializerContext.Default.HandoffCreated);
     }
 
@@ -893,9 +897,54 @@ public sealed class McpToolDispatcher(
     {
         var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
-        var count = await handoffService.DeleteAsync(agentId, GetInt(args, "handoff_id"), ct);
-        return "{\"deleted_count\":" + count + "}";
+        var handoffId = GetInt(args, "handoff_id");
+        var r = await handoffService.DeleteAsync(agentId, handoffId, ct);
+        return r.Status switch
+        {
+            "deleted" => "{\"handoff_id\":" + r.HandoffId + ",\"status\":\"deleted\",\"deleted_count\":1,\"title\":\"" + Esc(r.Title ?? "") + "\"}",
+            "picked_up" => Error($"Handoff #{handoffId} was already picked up by {r.ToAgent} at {r.PickedUpAt:yyyy-MM-dd HH:mm} UTC. " +
+                                 $"Only its recipient ({r.ToAgent}) can delete it now."),
+            _ => Error(HandoffNotFound(handoffId))
+        };
     }
+
+    private async Task<string> HandleUpdateHandoff(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = ResolveAgentId(caller, args);
+        if (agentId < 0) return Error("Agent not found");
+        var handoffId = GetInt(args, "handoff_id");
+        var title = GetString(args, "title");
+        var prompt = GetString(args, "prompt");
+        if (title is null && prompt is null) return Error("Nothing to change: pass a new title and/or prompt.");
+        if (title is not null && title.Trim().Length == 0) return Error("The title can't be empty.");
+        if (prompt is not null && prompt.Trim().Length == 0) return Error("The prompt can't be empty.");
+
+        var r = await handoffService.UpdateAsync(agentId, handoffId, title, prompt, ct);
+        return r.Status switch
+        {
+            "updated" => "{\"handoff_id\":" + r.HandoffId + ",\"status\":\"updated\",\"title\":\"" + Esc(r.Title ?? "") +
+                         "\",\"to_agent\":\"" + Esc(r.ToAgent ?? "") + "\"}",
+            "not_creator" => Error(r.FromAgent is null
+                ? $"Handoff #{handoffId} has no recorded creator (it was created before creator tracking, or by an admin), " +
+                  "so nobody can edit it. As its recipient you can still pick it up or delete it."
+                : $"Only the creator can edit handoff #{handoffId}; it was created by {r.FromAgent}. " +
+                  "As its recipient you can pick it up or delete it."),
+            "picked_up" => Error($"Handoff #{handoffId} was already picked up by {r.ToAgent} at {r.PickedUpAt:yyyy-MM-dd HH:mm} UTC, " +
+                                 "so it can't be edited any more. Send a new handoff instead."),
+            _ => Error(HandoffNotFound(handoffId))
+        };
+    }
+
+    private async Task<string> HandleListSentHandoffs(Agent caller, JsonElement args, CancellationToken ct)
+    {
+        var agentId = ResolveAgentId(caller, args);
+        if (agentId < 0) return Error("Agent not found");
+        var items = await handoffService.ListSentAsync(agentId, GetBool(args, "pending_only"), ct);
+        return "{\"handoffs\":" + Serialize(items, AppJsonSerializerContext.Default.ListHandoffSent) + "}";
+    }
+
+    private static string HandoffNotFound(int handoffId) =>
+        $"Handoff #{handoffId} not found, or it's not one you created or received.";
 
     // ===============================================================
     //  HANDLERS: Images
@@ -1535,15 +1584,16 @@ public sealed class McpToolDispatcher(
 
         // --- Handoffs ---
         Tool("list_handoffs",
-            "List pending handoffs for an agent.",
+            "List pending handoffs addressed to you. from_agent names the sender (null if unknown).",
             _A, "\"agent_name\"");
 
         Tool("get_handoff",
-            "Get a specific handoff.",
+            "Get a handoff you received or created, picked up or not.",
             $"{_A},{_HOID}", "\"agent_name\",\"handoff_id\"");
 
         Tool("create_handoff",
-            "Create a handoff prompt for an agent (cross-agent OK).",
+            "Create a handoff prompt for an agent (agent_name is the RECIPIENT; cross-agent OK). You're recorded as its creator, " +
+            "so you can edit (update_handoff) or delete it until it's picked up.",
             $"{_A},{_T},\"prompt\":{{\"type\":\"string\",\"description\":\"Handoff prompt text\"}}",
             "\"agent_name\",\"title\",\"prompt\"");
 
@@ -1552,8 +1602,21 @@ public sealed class McpToolDispatcher(
             $"{_A},{_HOID}", "\"agent_name\",\"handoff_id\"");
 
         Tool("delete_handoff",
-            "Delete a handoff (named agent only).",
+            "Delete a handoff. As its recipient: any time. As its creator: only while it's still pending (not picked up). " +
+            "If you can't, the error says why.",
             $"{_A},{_HOID}", "\"agent_name\",\"handoff_id\"");
+
+        Tool("update_handoff",
+            "Edit a handoff you created, while it's still pending (not picked up). Pass a new title and/or prompt; " +
+            "anything omitted stays as it is. If you can't, the error says why.",
+            $"{_A},{_HOID},{_T},\"prompt\":{{\"type\":\"string\",\"description\":\"New handoff prompt text\"}}",
+            "\"agent_name\",\"handoff_id\"");
+
+        Tool("list_sent_handoffs",
+            "List handoffs you created, newest first (max 100), with the recipient and pickup time. " +
+            "pending_only=true shows only those not yet picked up.",
+            $"{_A},\"pending_only\":{{\"type\":\"boolean\",\"description\":\"Only handoffs not yet picked up (default false)\"}}",
+            "\"agent_name\"");
 
         // --- Images ---
         Tool("generate_image",

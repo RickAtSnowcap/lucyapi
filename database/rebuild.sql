@@ -62,9 +62,11 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \i functions/fn_preference_update.sql
 \i functions/fn_preference_delete.sql
 \i functions/fn_handoff_list_pending.sql
+\i functions/fn_handoff_list_sent.sql
 \i functions/fn_handoff_get.sql
 \i functions/fn_handoff_create.sql
 \i functions/fn_handoff_pickup.sql
+\i functions/fn_handoff_update.sql
 \i functions/fn_handoff_delete.sql
 \i functions/fn_session_add_project.sql
 \i functions/fn_session_set_description.sql

@@ -1,8 +1,8 @@
 -- handoffs.sql
--- Agent-scoped session handoff prompts.
--- Agents write handoff prompts at end of session for the next session to pick up.
--- Any agent for the same user may read and create (cross-agent delegation).
--- Only the named agent may pickup or delete its own handoffs.
+-- Agent-scoped handoff prompts: work sent to an agent (its own next session, or another agent of the same user).
+-- created_by_agent_id is the sender (NULL for handoffs created before migration 015: sender unknown).
+-- The recipient (agent_id) may get, pick up and delete it at any time.
+-- The creator may get it, and edit or delete it only while it is pending (picked_up_at IS NULL).
 
 CREATE TABLE IF NOT EXISTS handoffs (
     handoff_id  SERIAL          PRIMARY KEY,
@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS handoffs (
     title       TEXT            NOT NULL,
     prompt      TEXT            NOT NULL,
     created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    picked_up_at TIMESTAMPTZ
+    picked_up_at TIMESTAMPTZ,
+    created_by_agent_id INT     REFERENCES agents(agent_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_handoffs_agent_id ON handoffs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_handoffs_created_by ON handoffs(created_by_agent_id);

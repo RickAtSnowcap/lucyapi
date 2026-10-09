@@ -20,3 +20,4 @@ publish/
 
 ## Secrets
 appsettings.*.local.json
+__pycache__/

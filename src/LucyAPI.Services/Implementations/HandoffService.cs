@@ -10,15 +10,21 @@ public sealed class HandoffService(HandoffRepository repo) : IHandoffService
     public Task<List<Handoff>> ListPendingAsync(int agentId, CancellationToken ct)
         => repo.ListPendingAsync(agentId, ct);
 
-    public Task<Handoff?> GetAsync(int agentId, int handoffId, CancellationToken ct)
-        => repo.GetAsync(agentId, handoffId, ct);
+    public Task<Handoff?> GetAsync(int callerAgentId, int handoffId, CancellationToken ct)
+        => repo.GetAsync(callerAgentId, handoffId, ct);
 
-    public Task<HandoffCreated?> CreateAsync(int agentId, CreateHandoffRequest request, CancellationToken ct)
-        => repo.CreateAsync(agentId, request.Title, request.Prompt, ct);
+    public Task<HandoffCreated?> CreateAsync(int agentId, CreateHandoffRequest request, int? createdByAgentId, CancellationToken ct)
+        => repo.CreateAsync(agentId, request.Title, request.Prompt, createdByAgentId, ct);
 
     public Task<HandoffPickedUp?> PickupAsync(int agentId, int handoffId, CancellationToken ct)
         => repo.PickupAsync(agentId, handoffId, ct);
 
-    public Task<int> DeleteAsync(int agentId, int handoffId, CancellationToken ct)
-        => repo.DeleteAsync(agentId, handoffId, ct);
+    public Task<HandoffChange> DeleteAsync(int callerAgentId, int handoffId, CancellationToken ct)
+        => repo.DeleteAsync(callerAgentId, handoffId, ct);
+
+    public Task<HandoffChange> UpdateAsync(int callerAgentId, int handoffId, string? title, string? prompt, CancellationToken ct)
+        => repo.UpdateAsync(callerAgentId, handoffId, title, prompt, ct);
+
+    public Task<List<HandoffSent>> ListSentAsync(int callerAgentId, bool pendingOnly, CancellationToken ct)
+        => repo.ListSentAsync(callerAgentId, pendingOnly, ct);
 }

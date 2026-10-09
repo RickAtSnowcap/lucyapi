@@ -323,7 +323,8 @@ public static class AdminAgentsEndpoints
             var agent = await RequireUserAgent(agentName, ctx, agentService, ct);
             if (agent is null) return Results.NotFound();
 
-            var result = await handoffService.CreateAsync(agent.Value.AgentId, request, ct);
+            // created by Rick in LucyAdmin, not by an agent: no recorded creator
+            var result = await handoffService.CreateAsync(agent.Value.AgentId, request, null, ct);
             return result is null ? Results.BadRequest() : Results.Ok(new AdminCreatedResponse<HandoffCreated> { Created = result });
         });
 
@@ -363,8 +364,9 @@ public static class AdminAgentsEndpoints
             var agent = await RequireUserAgent(agentName, ctx, agentService, ct);
             if (agent is null) return Results.NotFound();
 
-            var count = await handoffService.DeleteAsync(agent.Value.AgentId, handoffId, ct);
-            return count > 0 ? Results.Ok(new AdminDeletedIdResponse { Deleted = handoffId }) : Results.NotFound();
+            // as the recipient named in the path (recipients may delete at any time)
+            var result = await handoffService.DeleteAsync(agent.Value.AgentId, handoffId, ct);
+            return result.Status == "deleted" ? Results.Ok(new AdminDeletedIdResponse { Deleted = handoffId }) : Results.NotFound();
         });
 
         // ── Sessions ─────────────────────────────────────────────
