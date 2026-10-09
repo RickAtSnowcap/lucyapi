@@ -25,6 +25,6 @@ public sealed class HandoffService(HandoffRepository repo) : IHandoffService
     public Task<HandoffChange> UpdateAsync(int callerAgentId, int handoffId, string? title, string? prompt, CancellationToken ct)
         => repo.UpdateAsync(callerAgentId, handoffId, title, prompt, ct);
 
-    public Task<List<HandoffSent>> ListSentAsync(int callerAgentId, bool pendingOnly, CancellationToken ct)
+    public Task<HandoffSentList> ListSentAsync(int callerAgentId, bool pendingOnly, CancellationToken ct)
         => repo.ListSentAsync(callerAgentId, pendingOnly, ct);
 }

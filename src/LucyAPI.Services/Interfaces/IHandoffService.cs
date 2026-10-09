@@ -16,5 +16,5 @@ public interface IHandoffService
     Task<HandoffChange> DeleteAsync(int callerAgentId, int handoffId, CancellationToken ct = default);
     /// <summary>Creator only, while pending; null title/prompt = keep.</summary>
     Task<HandoffChange> UpdateAsync(int callerAgentId, int handoffId, string? title, string? prompt, CancellationToken ct = default);
-    Task<List<HandoffSent>> ListSentAsync(int callerAgentId, bool pendingOnly, CancellationToken ct = default);
+    Task<HandoffSentList> ListSentAsync(int callerAgentId, bool pendingOnly, CancellationToken ct = default);
 }

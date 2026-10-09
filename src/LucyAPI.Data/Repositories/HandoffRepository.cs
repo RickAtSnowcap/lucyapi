@@ -23,7 +23,8 @@ public sealed class HandoffRepository(NpgsqlDataSource dataSource)
                 Title = reader.GetString(1),
                 Prompt = reader.IsDBNull(2) ? null : reader.GetString(2),
                 CreatedAt = reader.GetFieldValue<DateTimeOffset>(3),
-                FromAgent = reader.IsDBNull(4) ? null : reader.GetString(4)
+                FromAgent = reader.IsDBNull(4) ? null : reader.GetString(4),
+                UpdatedAt = reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5)
             });
         }
         return results;
@@ -46,7 +47,8 @@ public sealed class HandoffRepository(NpgsqlDataSource dataSource)
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(3),
             PickedUpAt = reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
             ToAgent = reader.GetString(5),
-            FromAgent = reader.IsDBNull(6) ? null : reader.GetString(6)
+            FromAgent = reader.IsDBNull(6) ? null : reader.GetString(6),
+            UpdatedAt = reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7)
         };
     }
 
@@ -139,8 +141,8 @@ public sealed class HandoffRepository(NpgsqlDataSource dataSource)
         };
     }
 
-    /// <summary>Handoffs the caller created, newest first (max 100).</summary>
-    public async Task<List<HandoffSent>> ListSentAsync(int callerAgentId, bool pendingOnly, CancellationToken ct = default)
+    /// <summary>Handoffs the caller created, newest first: at most 100, Truncated when there are more.</summary>
+    public async Task<HandoffSentList> ListSentAsync(int callerAgentId, bool pendingOnly, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT * FROM lucyapi.fn_handoff_list_sent($1, $2)", conn)
@@ -157,9 +159,13 @@ public sealed class HandoffRepository(NpgsqlDataSource dataSource)
                 Title = reader.GetString(1),
                 CreatedAt = reader.GetFieldValue<DateTimeOffset>(2),
                 PickedUpAt = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-                ToAgent = reader.GetString(4)
+                ToAgent = reader.GetString(4),
+                UpdatedAt = reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5)
             });
         }
-        return results;
+        // the function returns up to 101 rows: the 101st only says there are more
+        var truncated = results.Count > 100;
+        if (truncated) results.RemoveRange(100, results.Count - 100);
+        return new HandoffSentList { Handoffs = results, Truncated = truncated };
     }
 }

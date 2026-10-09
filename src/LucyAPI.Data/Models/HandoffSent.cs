@@ -8,4 +8,5 @@ public sealed class HandoffSent
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? PickedUpAt { get; set; }
     public string ToAgent { get; set; } = "";
+    public DateTimeOffset? UpdatedAt { get; set; }
 }

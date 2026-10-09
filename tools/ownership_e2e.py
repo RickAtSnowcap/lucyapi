@@ -353,11 +353,13 @@ try:
         r = mcp("get_handoff", {"handoff_id": HO}, A_TOK)
         check("creator gets its handoff, with to/from", r.get("prompt") == "zz" and r.get("to_agent") == "zzown2-agent"
               and r.get("from_agent") == "zzown-agent", str(r)[:200])
+        check("a never-edited handoff has updated_at null", "updated_at" in r and r["updated_at"] is None, str(r)[:200])
         check("creator can't pick it up", "error" in mcp("pickup_handoff", {"handoff_id": HO}, A_TOK))
         check("sender's list_handoffs excludes it", HO not in ho_ids(mcp("list_handoffs", {}, A_TOK)))
         r = mcp("list_sent_handoffs", {"pending_only": True}, A_TOK)
         check("creator's list_sent_handoffs has it", any(h["handoff_id"] == HO and h["to_agent"] == "zzown2-agent"
               and h["picked_up_at"] is None for h in r.get("handoffs", [])), str(r)[:200])
+        check("list_sent_handoffs says it isn't truncated", r.get("truncated") is False, str(r)[:200])
         check("update_handoff with nothing to change refused", "error" in mcp("update_handoff", {"handoff_id": HO}, A_TOK))
         check("update_handoff to an empty title refused", "error" in mcp("update_handoff", {"handoff_id": HO, "title": " "}, A_TOK))
         r = mcp("update_handoff", {"handoff_id": HO, "prompt": "zz edited"}, A_TOK)
@@ -374,10 +376,16 @@ try:
               psql(f"SELECT title FROM handoffs WHERE handoff_id={HO} AND picked_up_at IS NULL") == "zz handoff")
         check("recipient lists it, with the sender", any(h["handoff_id"] == HO and h.get("from_agent") == "zzown-agent"
               for h in mcp("list_handoffs", {}, A2_TOK).get("handoffs", [])))
-        check("recipient gets the edited version", mcp("get_handoff", {"handoff_id": HO}, A2_TOK).get("prompt") == "zz edited")
+        r = mcp("get_handoff", {"handoff_id": HO}, A2_TOK)
+        check("recipient gets the edited version, with updated_at", r.get("prompt") == "zz edited" and r.get("updated_at"), str(r)[:200])
+        check("recipient's list_handoffs flags the edit", any(h["handoff_id"] == HO and h.get("updated_at")
+              for h in mcp("list_handoffs", {}, A2_TOK).get("handoffs", [])))
         r = mcp("pickup_handoff", {"agent_name": "zzown2-agent", "handoff_id": HO}, A2_TOK)
         check("recipient picks it up", r.get("handoff_id") == HO and r.get("picked_up_at"), str(r)[:200])
         # after pickup
+        r = mcp("update_handoff", {"handoff_id": HO, "title": "x"}, A2_TOK)
+        check("recipient told it can delete (not pick up) after pickup", "you can delete it" in r.get("error", "")
+              and "pick it up or" not in r.get("error", ""), str(r)[:200])
         r = mcp("update_handoff", {"handoff_id": HO, "title": "x"}, A_TOK)
         check("creator can't edit after pickup", "picked up" in r.get("error", ""), str(r)[:200])
         r = mcp("delete_handoff", {"handoff_id": HO}, A_TOK)
@@ -391,6 +399,13 @@ try:
     r = mcp("delete_handoff", {"handoff_id": HO2 or 0}, A_TOK)
     check("creator deletes its pending handoff", r.get("status") == "deleted"
           and psql(f"SELECT count(*) FROM handoffs WHERE handoff_id={HO2 or 0}") == "0", str(r)[:200])
+    # list_sent_handoffs stops at 100 and says so
+    psql(f"INSERT INTO handoffs (agent_id, title, prompt, created_by_agent_id) SELECT {agent_a2}, 'zz bulk ' || g, 'zz', {agent_a} "
+         "FROM generate_series(1, 101) g")
+    r = mcp("list_sent_handoffs", {}, A_TOK)
+    check("list_sent_handoffs over 100: 100 shown, truncated", len(r.get("handoffs", [])) == 100 and r.get("truncated") is True,
+          f"{len(r.get('handoffs', []))} {r.get('truncated')}")
+    psql(f"DELETE FROM handoffs WHERE agent_id = {agent_a2} AND title LIKE 'zz bulk %'")
     # a handoff with no recorded creator (pre-015, or admin-created)
     HO3 = int(psql(f"INSERT INTO handoffs (agent_id, title, prompt) VALUES ({agent_a2}, 'zz legacy', 'zz') RETURNING handoff_id"))
     r = mcp("update_handoff", {"handoff_id": HO3, "title": "x"}, A2_TOK)

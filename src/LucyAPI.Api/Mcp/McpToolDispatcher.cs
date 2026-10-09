@@ -926,9 +926,8 @@ public sealed class McpToolDispatcher(
                          "\",\"to_agent\":\"" + Esc(r.ToAgent ?? "") + "\"}",
             "not_creator" => Error(r.FromAgent is null
                 ? $"Handoff #{handoffId} has no recorded creator (it was created before creator tracking, or by an admin), " +
-                  "so nobody can edit it. As its recipient you can still pick it up or delete it."
-                : $"Only the creator can edit handoff #{handoffId}; it was created by {r.FromAgent}. " +
-                  "As its recipient you can pick it up or delete it."),
+                  "so nobody can edit it. " + RecipientOptions(r)
+                : $"Only the creator can edit handoff #{handoffId}; it was created by {r.FromAgent}. " + RecipientOptions(r)),
             "picked_up" => Error($"Handoff #{handoffId} was already picked up by {r.ToAgent} at {r.PickedUpAt:yyyy-MM-dd HH:mm} UTC, " +
                                  "so it can't be edited any more. Send a new handoff instead."),
             _ => Error(HandoffNotFound(handoffId))
@@ -939,9 +938,14 @@ public sealed class McpToolDispatcher(
     {
         var agentId = ResolveAgentId(caller, args);
         if (agentId < 0) return Error("Agent not found");
-        var items = await handoffService.ListSentAsync(agentId, GetBool(args, "pending_only"), ct);
-        return "{\"handoffs\":" + Serialize(items, AppJsonSerializerContext.Default.ListHandoffSent) + "}";
+        var list = await handoffService.ListSentAsync(agentId, GetBool(args, "pending_only"), ct);
+        return Serialize(list, AppJsonSerializerContext.Default.HandoffSentList);
     }
+
+    // what the recipient can still do with a handoff it can't edit
+    private static string RecipientOptions(HandoffChange r) => r.PickedUpAt is null
+        ? "As its recipient you can pick it up or delete it."
+        : $"You picked it up at {r.PickedUpAt:yyyy-MM-dd HH:mm} UTC; as its recipient you can delete it.";
 
     private static string HandoffNotFound(int handoffId) =>
         $"Handoff #{handoffId} not found, or it's not one you created or received.";
@@ -1584,11 +1588,12 @@ public sealed class McpToolDispatcher(
 
         // --- Handoffs ---
         Tool("list_handoffs",
-            "List pending handoffs addressed to you. from_agent names the sender (null if unknown).",
+            "List pending handoffs addressed to you. from_agent names the sender (null if unknown); " +
+            "updated_at is set if the sender edited it (null = never edited).",
             _A, "\"agent_name\"");
 
         Tool("get_handoff",
-            "Get a handoff you received or created, picked up or not.",
+            "Get a handoff you received or created, picked up or not. updated_at is the sender's last edit (null = never edited).",
             $"{_A},{_HOID}", "\"agent_name\",\"handoff_id\"");
 
         Tool("create_handoff",
@@ -1608,13 +1613,14 @@ public sealed class McpToolDispatcher(
 
         Tool("update_handoff",
             "Edit a handoff you created, while it's still pending (not picked up). Pass a new title and/or prompt; " +
-            "anything omitted stays as it is. If you can't, the error says why.",
+            "anything omitted stays as it is. If you can't, the error says why. Pending isn't unread: the recipient may " +
+            "already have read it, so the edit sets updated_at (shown to the recipient); for a material change, tell them too.",
             $"{_A},{_HOID},{_T},\"prompt\":{{\"type\":\"string\",\"description\":\"New handoff prompt text\"}}",
             "\"agent_name\",\"handoff_id\"");
 
         Tool("list_sent_handoffs",
-            "List handoffs you created, newest first (max 100), with the recipient and pickup time. " +
-            "pending_only=true shows only those not yet picked up.",
+            "List handoffs you created, newest first, with the recipient, pickup time and last edit. At most 100: " +
+            "truncated=true means there are older ones not shown. pending_only=true shows only those not yet picked up.",
             $"{_A},\"pending_only\":{{\"type\":\"boolean\",\"description\":\"Only handoffs not yet picked up (default false)\"}}",
             "\"agent_name\"");
 

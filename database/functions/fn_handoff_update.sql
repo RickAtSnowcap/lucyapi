@@ -46,7 +46,8 @@ BEGIN
 
     UPDATE public.handoffs h
        SET title  = COALESCE(p_title, h.title),
-           prompt = COALESCE(p_prompt, h.prompt)
+           prompt = COALESCE(p_prompt, h.prompt),
+           updated_at = NOW()
      WHERE h.handoff_id = p_handoff_id
     RETURNING h.title INTO v_title;
 

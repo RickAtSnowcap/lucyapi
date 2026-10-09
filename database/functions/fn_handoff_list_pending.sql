@@ -1,9 +1,9 @@
 -- fn_handoff_list_pending.sql
 -- Returns pending (not yet picked up) handoffs addressed to an agent, FIFO, with the sender's name
--- (NULL when unknown: handoffs created before migration 015).
+-- (NULL when unknown: handoffs created before migration 015) and the creator's last edit (NULL = never edited).
 
 CREATE OR REPLACE FUNCTION lucyapi.fn_handoff_list_pending(p_agent_id INT)
-RETURNS TABLE(handoff_id INT, title TEXT, prompt TEXT, created_at TIMESTAMPTZ, from_agent TEXT)
+RETURNS TABLE(handoff_id INT, title TEXT, prompt TEXT, created_at TIMESTAMPTZ, from_agent TEXT, updated_at TIMESTAMPTZ)
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $proc$
@@ -13,7 +13,8 @@ BEGIN
            h.title,
            h.prompt,
            h.created_at,
-           fa.name
+           fa.name,
+           h.updated_at
       FROM public.handoffs h
       LEFT JOIN public.agents fa ON fa.agent_id = h.created_by_agent_id
      WHERE h.agent_id = p_agent_id
