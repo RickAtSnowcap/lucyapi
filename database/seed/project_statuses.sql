@@ -12,3 +12,8 @@ ON CONFLICT (status_id) DO UPDATE
     SET code       = EXCLUDED.code,
         label      = EXCLUDED.label,
         sort_order = EXCLUDED.sort_order;
+
+-- Explicit IDs don't advance the SERIAL sequence; move it past them so a new status doesn't collide.
+DO $$ BEGIN
+    PERFORM setval('project_statuses_status_id_seq', (SELECT MAX(status_id) FROM project_statuses));
+END $$;

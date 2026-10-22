@@ -51,7 +51,7 @@ Agents reach LucyAPI only through the MCP connector at `/mcp/connector`, authent
 
 ### Database
 
-PostgreSQL with all business logic in PL/pgSQL functions under the `lucyapi` schema. Tables live in `public`. Connection string is AES-256-CBC encrypted at rest using [tcrypt-lib](https://github.com/RickAtSnowcap/tcrypt-lib) with a TPM-sealed key delivered via systemd credentials.
+PostgreSQL with all business logic in PL/pgSQL functions under the `lucyapi` schema. Tables live in `public`. To build a fresh database, see [database/README.md](database/README.md). Connection string is AES-256-CBC encrypted at rest using [tcrypt-lib](https://github.com/RickAtSnowcap/tcrypt-lib) with a TPM-sealed key delivered via systemd credentials.
 
 ## API endpoints
 
