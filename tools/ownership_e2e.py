@@ -6,10 +6,12 @@ temporary client, the same way /oauth/token stores them (SHA-256 hashes only). P
 Also covers image uploads (migration 010, project #3 §450): upload_image + /admin/images/upload, WebP → PNG,
 GIF stored byte-for-byte, and rejection of bad magic bytes, truncated, oversize and over-pixel-cap images;
 handoffs between two agents of the same user (creator edit/delete while pending, migration 015); and that key auth (legacy /mcp/, REST routes) is gone.
-Usage: ownership_e2e.py [base_url]   (default http://127.0.0.1:8100; needs passwordless sudo for psql as postgres)"""
+Usage: ownership_e2e.py <base_url>   (the LucyAPI listen address; needs passwordless sudo for psql as postgres)"""
 import base64, hashlib, json, os, re, secrets, struct, subprocess, sys, urllib.request, urllib.error, uuid, zlib
 
-B = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:8100"
+if len(sys.argv) < 2:
+    sys.exit("Usage: ownership_e2e.py <base_url>")
+B = sys.argv[1].rstrip("/")
 RESOURCE = "https://lucyapi.snowcapsystems.com/mcp/connector"   # OAuthSettings.Resource: tokens are audience-bound to it
 CLIENT_ID = "zz-e2e-" + uuid.uuid4().hex
 IMAGES_DIR = "/opt/lucyapi/output/images"

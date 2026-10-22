@@ -93,7 +93,7 @@ def main():
     if args.dry_run:
         print(f"Dry run: {len(updates)} row(s) would be updated.")
         return
-    psql("SET ROLE leaddev;\nBEGIN;\n" + "\n".join(updates) + "\nCOMMIT;\n")
+    psql("SET ROLE lucyapi_owner;\nBEGIN;\n" + "\n".join(updates) + "\nCOMMIT;\n")
     print(f"Updated {len(updates)} row(s).")
 
 

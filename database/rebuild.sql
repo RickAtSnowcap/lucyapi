@@ -9,13 +9,18 @@
 --
 -- Also builds a fresh database: see README.md in this folder for the full steps (role, database, first user).
 --
--- Usage:  psql -d lucyapi -v ON_ERROR_STOP=1 [-v app_role=<role>] -f database/rebuild.sql
---   app_role: the login LucyAPI connects as (default leaddev). It must already exist.
+-- Usage:  psql -d lucyapi -v ON_ERROR_STOP=1 [-v owner_role=<role>] [-v app_role=<role>] -f database/rebuild.sql
+--   owner_role: the role that owns every object (default: whoever runs the script). Run as a member of it.
+--   app_role:   the login LucyAPI connects as (default lucyapi_app). It gets only the grants in grants.sql.
+--   Both roles must already exist.
 -- Includes use \ir, so the script runs from any working directory.
 
 \if :{?app_role}
 \else
-    \set app_role leaddev
+    \set app_role lucyapi_app
+\endif
+\if :{?owner_role}
+    SET ROLE :"owner_role";
 \endif
 
 \echo '=== LucyAPI Database Rebuild ==='

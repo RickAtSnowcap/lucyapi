@@ -21,29 +21,31 @@ Tables live in `public`. Functions live in the `lucyapi` schema.
 
 ## Build a fresh database
 
-Run these as a PostgreSQL superuser (or any role that can create roles and databases). The objects end up owned
-by the role that runs `rebuild.sql`. Keep that role separate from the application role, which only gets
-read/write on tables and `EXECUTE` on functions.
+Run these as a PostgreSQL superuser (or any role that can create roles and databases). Two roles keep ownership
+apart from the application:
+- `lucyapi_owner` owns every object. It has no login; you run builds and migrations as a member of it.
+- `lucyapi_app` is the login LucyAPI connects as. It gets only read/write on tables and `EXECUTE` on functions.
 
-**1. Create the application role** (the login LucyAPI connects as). Pick any name; `lucyapi_app` is used below.
+The names are the defaults; pass `-v owner_role=...` / `-v app_role=...` to use others.
+
+**1. Create the roles.**
 
 ```sql
+CREATE ROLE lucyapi_owner NOLOGIN;
 CREATE ROLE lucyapi_app LOGIN PASSWORD '<choose one>';
 ```
 
-**2. Create the database.**
+**2. Create the database**, owned by the owner role (so it can create the schema and tables in `public`).
 
 ```bash
-createdb lucyapi
+createdb -O lucyapi_owner lucyapi
 ```
 
 **3. Build the schema.** `rebuild.sql` uses `\ir`, so you can run it from any directory.
 
 ```bash
-psql -d lucyapi -v ON_ERROR_STOP=1 -v app_role=lucyapi_app -f database/rebuild.sql
+psql -d lucyapi -v ON_ERROR_STOP=1 -v owner_role=lucyapi_owner -f database/rebuild.sql
 ```
-
-Leaving out `-v app_role=...` grants to `leaddev`, the role Snowcap's own instance uses.
 
 **4. Create the first user and agent.** No API creates users, so this is how the first one gets in. Hash the
 password first (hidden prompt; it prints only the hash):
@@ -80,6 +82,8 @@ are what `migrations/` are for.
 
 ## Changing the schema
 
+Run migrations as the owner role (`SET ROLE lucyapi_owner;` first), so new objects get the right owner.
+
 A change lands in four places:
 1. a new numbered file in `migrations/`, for existing databases;
 2. the matching file in `tables/` or `functions/`, so a fresh build gets the current shape;
@@ -90,8 +94,6 @@ A change lands in four places:
 
 These are deliberate. They were checked on 2026-10-22 by building from this folder and diffing it against the
 live database (schema, grants and reference data):
-- **Ownership.** Live objects are owned by `leaddev`, the application role. A fresh build is owned by whoever runs
-  `rebuild.sql`, and the application role gets only the grants in `grants.sql`.
 - **Extensions.** The live database also has `pg_trgm` and `fuzzystrmatch`. LucyAPI doesn't use either.
 - **Comments.** A few live function bodies are missing the explanatory comments that the files here have.
   The code is the same.

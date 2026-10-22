@@ -1,6 +1,6 @@
 -- grants.sql
 -- Permissions for the application role, the login LucyAPI connects as. It comes from the psql variable
--- app_role (default leaddev, the role Snowcap's own instance uses today).
+-- app_role (default lucyapi_app).
 -- Run LAST, after all tables, functions and seed data exist (rebuild.sql does this).
 --
 -- Standing up your own instance: create the role before running rebuild.sql (see README.md), e.g.
@@ -12,7 +12,7 @@
 
 \if :{?app_role}
 \else
-    \set app_role leaddev
+    \set app_role lucyapi_app
 \endif
 
 -- Schemas

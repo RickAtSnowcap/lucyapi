@@ -2,11 +2,13 @@
 """End-to-end OAuth test client for LucyAPI's MCP connector (project #62).
 Walks the flow Claude performs: 401 challenge -> discovery -> DCR -> authorize (sign in, choose
 agent, approve) -> token -> MCP calls -> refresh rotation -> reuse detection. Prints PASS/FAIL lines.
-Usage: oauth_e2e.py <base_url> <username> <password> <agent_name>
+Usage: oauth_e2e.py <base_url> <username> <password> <agent_name> [other_agent]
+  other_agent: an agent the token must NOT be able to act as (default: a name that doesn't exist).
 """
 import base64, hashlib, html, json, os, re, sys, urllib.parse, urllib.request, urllib.error
 
 BASE, USER, PW, AGENT = sys.argv[1:5]
+OTHER = sys.argv[5] if len(sys.argv) > 5 else "no-such-agent"
 RESOURCE = "https://lucyapi.snowcapsystems.com/mcp/connector"
 REDIRECT = "http://127.0.0.1:9999/callback"
 fails = 0
@@ -130,8 +132,8 @@ s, _, b = rpc("tools/list", token=access, rid=2)
 check("tools/list has NO agent_key anywhere", s == 200 and "agent_key" not in b and '"get_context"' in b, (s, "agent_key" in b))
 s, _, b = rpc("tools/call", {"name": "get_context", "arguments": {}}, token=access, rid=3)
 check("get_context works with no key", s == 200 and "projects_manifest" in b, b[:200])
-s, _, b = rpc("tools/call", {"name": "get_memories", "arguments": {"agent_name": "no-such-agent"}}, token=access, rid=4)
-check("acting as another agent (no-such-agent) refused", "Agent not found" in b or "error" in b.lower(), b[:200])
+s, _, b = rpc("tools/call", {"name": "get_memories", "arguments": {"agent_name": OTHER}}, token=access, rid=4)
+check(f"acting as another agent ({OTHER}) refused", "Agent not found" in b or "error" in b.lower(), b[:200])
 s, _, b = rpc("tools/call", {"name": "create_handoff", "arguments": {"agent_name": AGENT, "title": "e2e test", "prompt": "delete me"}}, token=access, rid=5)
 hid = (re.search(r'handoff_id\D{1,12}?(\d+)', b) or [None, None])[1]   # tool text is JSON-in-JSON (" escapes)
 check("create_handoff (recipient path) works", hid is not None, b[:200])
