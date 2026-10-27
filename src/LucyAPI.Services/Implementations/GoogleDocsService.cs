@@ -296,7 +296,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
-        var parent = folderId ?? session.FolderId;
+        var parent = ToFolderId(session, folderId);
         var query = Uri.EscapeDataString($"'{parent}' in parents and trashed = false");
         var fields = Uri.EscapeDataString("files(id,name,mimeType,modifiedTime,webViewLink)");
 
@@ -323,7 +323,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
             }
         }
 
-        return new DriveFileListResponse { FolderId = parent, Files = files };
+        return new DriveFileListResponse { FolderId = ShowFolderId(session, parent), Files = files };
     }
 
     public async Task<FolderResponse> CreateFolderAsync(int userId, string name, string? parentFolderId, CancellationToken ct)
@@ -332,7 +332,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
 
-        var parent = parentFolderId ?? session.FolderId;
+        var parent = ToFolderId(session, parentFolderId);
         var body = "{\"name\":\"" + EscapeJson(name) + "\",\"mimeType\":\"application/vnd.google-apps.folder\",\"parents\":[\"" + parent + "\"]}";
 
         var resp = await http.PostAsync(
@@ -357,6 +357,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
         RequireGoogleId(targetFolderId, "target_folder_id");
         var session = await EnsureInitializedAsync(userId, ct);
         using var http = CreateAuthedClient(session);
+        targetFolderId = ToFolderId(session, targetFolderId);
 
         // Get current parents
         var getResp = await http.GetAsync(
@@ -388,7 +389,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
         if (doc.RootElement.TryGetProperty("parents", out var newParArr))
         {
             foreach (var p in newParArr.EnumerateArray())
-                parents.Add(p.GetString() ?? "");
+                parents.Add(ShowFolderId(session, p.GetString() ?? ""));
         }
 
         return new MoveFileResponse
@@ -433,7 +434,7 @@ public sealed class GoogleDocsService : IGoogleDocsService
         if (root.TryGetProperty("parents", out var parArr))
         {
             foreach (var p in parArr.EnumerateArray())
-                parents.Add(p.GetString() ?? "");
+                parents.Add(ShowFolderId(session, p.GetString() ?? ""));
         }
 
         return new DriveFileInfo
@@ -585,6 +586,18 @@ public sealed class GoogleDocsService : IGoogleDocsService
             !id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
             throw new ArgumentException($"{paramName} is not a valid Google ID");
     }
+
+    /// <summary>
+    /// The home folder (the sealed GoogleFolderId) is never shown: responses say "home" in its place,
+    /// and every folder parameter accepts "home" for it.
+    /// </summary>
+    private const string HomeFolderAlias = "home";
+
+    private static string ToFolderId(GoogleSession session, string? folderId) =>
+        folderId is null || folderId == HomeFolderAlias ? session.FolderId : folderId;
+
+    private static string ShowFolderId(GoogleSession session, string id) =>
+        id == session.FolderId ? HomeFolderAlias : id;
 
     private static string ExtractPlainText(JsonElement root)
     {

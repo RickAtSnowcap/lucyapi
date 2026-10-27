@@ -1670,18 +1670,18 @@ public sealed class McpToolDispatcher(
         // --- Google Drive ---
         Tool("list_google_files",
             "List files in the shared Drive folder or a subfolder.",
-            "\"folder_id\":{\"type\":\"string\",\"description\":\"Subfolder ID (defaults to root shared folder)\"}", "");
+            "\"folder_id\":{\"type\":\"string\",\"description\":\"Subfolder ID, or home (the default) for the shared home folder\"}", "");
 
         Tool("create_google_folder",
             "Create a subfolder in the shared Drive folder.",
             "\"name\":{\"type\":\"string\",\"description\":\"Folder name\"}," +
-            "\"parent_folder_id\":{\"type\":\"string\",\"description\":\"Parent folder ID\"}",
+            "\"parent_folder_id\":{\"type\":\"string\",\"description\":\"Parent folder ID, or home (the default) for the shared home folder\"}",
             "\"name\"");
 
         Tool("move_google_file",
             "Move a file to a different folder.",
             "\"file_id\":{\"type\":\"string\",\"description\":\"File ID to move\"}," +
-            "\"target_folder_id\":{\"type\":\"string\",\"description\":\"Destination folder ID\"}",
+            "\"target_folder_id\":{\"type\":\"string\",\"description\":\"Destination folder ID, or home for the shared home folder\"}",
             "\"file_id\",\"target_folder_id\"");
 
         Tool("delete_google_file",
