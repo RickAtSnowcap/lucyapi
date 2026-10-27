@@ -3,7 +3,7 @@ using Npgsql;
 namespace LucyAPI.Data.Repositories;
 
 /// <summary>
-/// Admin-specific reads/writes (dashboard, agents list, sharing, secrets list) — all via lucyapi stored functions.
+/// Admin-specific reads/writes (dashboard, agents list, sharing) — all via lucyapi stored functions.
 /// </summary>
 public sealed class AdminRepository(NpgsqlDataSource dataSource)
 {
@@ -113,29 +113,6 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
         return results;
     }
 
-    // ── Secrets (key list with timestamps) ───────────────────────
-
-    public async Task<List<(string Key, DateTimeOffset? CreatedAt, DateTimeOffset? UpdatedAt)>>
-        ListSecretKeysAsync(int userId, CancellationToken ct = default)
-    {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand("SELECT key, created_at, updated_at FROM lucyapi.fn_secret_list($1)", conn)
-        {
-            Parameters = { new() { Value = userId } }
-        };
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        var results = new List<(string, DateTimeOffset?, DateTimeOffset?)>();
-        while (await reader.ReadAsync(ct))
-        {
-            results.Add((
-                reader.GetString(0),
-                reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1),
-                reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2)
-            ));
-        }
-        return results;
-    }
-
     // ── Share Update ───────────────────────────────────────────────
 
     public async Task<(int ShareId, int ObjectTypeId, int ObjectId, int SharedToUserId, int PermissionLevel)?>
@@ -165,7 +142,7 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
     // ── Dashboard CTE ────────────────────────────────────────────
 
     public async Task<(long Agents, long Projects, long Wikis, long HintCategories,
-        long Secrets, long Images, long PendingHandoffs, long SharedToMe)>
+        long Images, long PendingHandoffs, long SharedToMe)>
         GetDashboardStatsAsync(int userId, CancellationToken ct = default)
     {
         await using var conn = await dataSource.OpenConnectionAsync(ct);
@@ -182,8 +159,7 @@ public sealed class AdminRepository(NpgsqlDataSource dataSource)
             reader.GetInt64(3),
             reader.GetInt64(4),
             reader.GetInt64(5),
-            reader.GetInt64(6),
-            reader.GetInt64(7)
+            reader.GetInt64(6)
         );
     }
 

@@ -13,6 +13,9 @@ using Snowcap.TCrypt;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// TPM-sealed key for the Suitcase section (production only; development reads plain env vars instead).
+byte[]? suitcaseKey = builder.Environment.IsDevelopment() ? null : SuitcaseCrypt.LoadKey();
+
 // --- Connection string ---
 string connectionString;
 if (builder.Environment.IsDevelopment())
@@ -22,10 +25,9 @@ if (builder.Environment.IsDevelopment())
 }
 else
 {
-    var suitcaseKey = SuitcaseCrypt.LoadKey();
     var encrypted = builder.Configuration["Suitcase:DbConnection"]
         ?? throw new InvalidOperationException("Suitcase:DbConnection not configured");
-    connectionString = SuitcaseCrypt.Decrypt(encrypted, suitcaseKey);
+    connectionString = SuitcaseCrypt.Decrypt(encrypted, suitcaseKey!);
 }
 
 // --- Npgsql (AOT-safe) ---
@@ -48,7 +50,6 @@ builder.Services.AddSingleton<HandoffRepository>();
 builder.Services.AddSingleton<SessionRepository>();
 builder.Services.AddSingleton<ContextRepository>();
 builder.Services.AddSingleton<HintRepository>();
-builder.Services.AddSingleton<SecretRepository>();
 builder.Services.AddSingleton<ShareRepository>();
 builder.Services.AddSingleton<ImageRepository>();
 builder.Services.AddSingleton<UserRepository>();
@@ -70,14 +71,9 @@ builder.Services.AddSingleton<IHandoffService, HandoffService>();
 builder.Services.AddSingleton<ISessionService, SessionService>();
 builder.Services.AddSingleton<IContextService, ContextService>();
 builder.Services.AddSingleton<IHintService, HintService>();
-// SecretService registered below after encryptionKey is resolved
 builder.Services.AddSingleton<IShareService, ShareService>();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<INudgeService, NudgeService>();
-
-var encryptionKey = builder.Environment.IsDevelopment()
-    ? Convert.FromBase64String(Environment.GetEnvironmentVariable("LUCYAPI_ENCRYPTION_KEY") ?? "")
-    : SuitcaseCrypt.LoadKey();
 
 // Secrets live TPM-sealed in the Suitcase section (preference #33); development reads plain env vars instead.
 string SealedSetting(string suitcaseName, string devEnvVar) =>
@@ -85,17 +81,23 @@ string SealedSetting(string suitcaseName, string devEnvVar) =>
         ? Environment.GetEnvironmentVariable(devEnvVar)
             ?? throw new InvalidOperationException($"Set {devEnvVar} for development")
         : SuitcaseCrypt.Decrypt(builder.Configuration[$"Suitcase:{suitcaseName}"]
-            ?? throw new InvalidOperationException($"Suitcase:{suitcaseName} not configured"), encryptionKey);
+            ?? throw new InvalidOperationException($"Suitcase:{suitcaseName} not configured"), suitcaseKey!);
 
 // --- JWT Auth ---
 builder.Services.AddSingleton(new JwtTokenService(SealedSetting("JwtSigningKey", "LUCYAPI_JWT_SECRET")));
 
 // --- Phase 5: Google Docs, Images, Save Notes ---
 
-builder.Services.AddSingleton<ISecretService>(sp =>
-    new SecretService(sp.GetRequiredService<SecretRepository>(), encryptionKey));
+// One server-wide Google identity (sealed credentials), owned by GoogleDocs:OwnerUserId.
+var googleClientId = SealedSetting("GoogleClientId", "LUCYAPI_GOOGLE_CLIENT_ID");
+var googleClientSecret = SealedSetting("GoogleClientSecret", "LUCYAPI_GOOGLE_CLIENT_SECRET");
+var googleRefreshToken = SealedSetting("GoogleRefreshToken", "LUCYAPI_GOOGLE_REFRESH_TOKEN");
+var googleFolderId = SealedSetting("GoogleFolderId", "LUCYAPI_GOOGLE_FOLDER_ID");
+var googleOwnerUserId = int.TryParse(builder.Configuration["GoogleDocs:OwnerUserId"], out var ownerUserId)
+    ? ownerUserId
+    : throw new InvalidOperationException("GoogleDocs:OwnerUserId must be a user id");
 
-// Explicit allowlist: user id -> user id whose Google credentials they may use (server config only).
+// Explicit allowlist: user id -> GoogleDocs:OwnerUserId, letting that user use the owner's Google identity (server config only).
 var googleUseCredentialsOf = new Dictionary<int, int>();
 foreach (var entry in builder.Configuration.GetSection("GoogleDocs:UseCredentialsOf").GetChildren())
 {
@@ -103,8 +105,8 @@ foreach (var entry in builder.Configuration.GetSection("GoogleDocs:UseCredential
         throw new InvalidOperationException($"GoogleDocs:UseCredentialsOf entry '{entry.Key}' must map a user id to a user id");
     googleUseCredentialsOf[fromUser] = toUser;
 }
-builder.Services.AddSingleton<IGoogleDocsService>(sp =>
-    new GoogleDocsService(sp.GetRequiredService<ISecretService>(), googleUseCredentialsOf));
+builder.Services.AddSingleton<IGoogleDocsService>(new GoogleDocsService(
+    googleClientId, googleClientSecret, googleRefreshToken, googleFolderId, googleOwnerUserId, googleUseCredentialsOf));
 
 var geminiApiKey = SealedSetting("GeminiApiKey", "GEMINI_API_KEY");
 builder.Services.AddSingleton<IGeminiService>(new GeminiService(geminiApiKey));

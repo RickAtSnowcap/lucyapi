@@ -36,7 +36,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
     project_sections,
     project_statuses,
     projects,
-    secrets,
     session_projects,
     sessions,
     shared_objects,
@@ -60,7 +59,6 @@ GRANT USAGE, SELECT ON
     project_sections_section_id_seq,
     project_statuses_status_id_seq,
     projects_project_id_seq,
-    secrets_secret_id_seq,
     sessions_session_id_seq,
     shared_objects_share_id_seq,
     users_user_id_seq,
@@ -142,10 +140,6 @@ GRANT EXECUTE ON FUNCTION lucyapi.fn_project_get_compact(INTEGER, INTEGER) TO :"
 GRANT EXECUTE ON FUNCTION lucyapi.fn_project_get_sections(INTEGER, INTEGER) TO :"app_role";
 GRANT EXECUTE ON FUNCTION lucyapi.fn_project_statuses_get() TO :"app_role";
 GRANT EXECUTE ON FUNCTION lucyapi.fn_project_update(INTEGER, INTEGER, TEXT, TEXT, INTEGER) TO :"app_role";
-GRANT EXECUTE ON FUNCTION lucyapi.fn_secret_delete(INTEGER, TEXT) TO :"app_role";
-GRANT EXECUTE ON FUNCTION lucyapi.fn_secret_get(INTEGER, TEXT) TO :"app_role";
-GRANT EXECUTE ON FUNCTION lucyapi.fn_secret_list(INTEGER) TO :"app_role";
-GRANT EXECUTE ON FUNCTION lucyapi.fn_secret_set(INTEGER, TEXT, BYTEA) TO :"app_role";
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_create(INTEGER, INTEGER, INTEGER, TEXT, TEXT, TEXT) TO :"app_role";
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_delete(INTEGER, INTEGER, INTEGER) TO :"app_role";
 GRANT EXECUTE ON FUNCTION lucyapi.fn_section_get(INTEGER, INTEGER, INTEGER) TO :"app_role";

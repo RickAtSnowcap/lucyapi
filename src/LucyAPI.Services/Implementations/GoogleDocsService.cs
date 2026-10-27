@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -9,16 +8,17 @@ namespace LucyAPI.Services.Implementations;
 
 /// <summary>
 /// Google Docs and Drive service using direct REST API calls (AOT-safe, no Google SDK).
-/// Credentials are resolved PER CALLER: the caller's own google_oauth_* secrets if they have them;
-/// otherwise the credentials of the user named for them in the explicit GoogleDocs:UseCredentialsOf
-/// allowlist (appsettings on the server — not changeable through the API); otherwise refused.
-/// One cached session (access token) per credential owner.
+/// ONE server-wide Google identity, from server config (Suitcase: GoogleClientId, GoogleClientSecret,
+/// GoogleRefreshToken; plain: GoogleDocs:FolderId). It belongs to GoogleDocs:OwnerUserId. A caller may use it
+/// if they are that user, or if the explicit GoogleDocs:UseCredentialsOf allowlist (appsettings on the server —
+/// not changeable through the API) maps them to that user; otherwise refused.
+/// One cached session (access token), shared by every permitted caller.
 /// </summary>
 public sealed class GoogleDocsService : IGoogleDocsService
 {
-    private readonly ISecretService _secretService;
+    private readonly int _ownerUserId;
     private readonly IReadOnlyDictionary<int, int> _useCredentialsOf;
-    private readonly ConcurrentDictionary<int, GoogleSession> _sessions = new();
+    private readonly GoogleSession _session;
 
     private sealed class GoogleSession
     {
@@ -31,15 +31,28 @@ public sealed class GoogleDocsService : IGoogleDocsService
         public SemaphoreSlim Lock { get; } = new(1, 1);
     }
 
-    public GoogleDocsService(ISecretService secretService, IReadOnlyDictionary<int, int> useCredentialsOf)
+    public GoogleDocsService(string clientId, string clientSecret, string refreshToken, string folderId,
+        int ownerUserId, IReadOnlyDictionary<int, int> useCredentialsOf)
     {
-        _secretService = secretService;
+        _ownerUserId = ownerUserId;
         _useCredentialsOf = useCredentialsOf;
+        _session = new GoogleSession
+        {
+            RefreshToken = refreshToken,
+            ClientId = clientId,
+            ClientSecret = clientSecret,
+            FolderId = folderId
+        };
     }
 
     private async Task<GoogleSession> EnsureInitializedAsync(int userId, CancellationToken ct)
     {
-        var session = await GetSessionAsync(userId, ct);
+        // The owner; then the explicit allowlist; nothing else.
+        if (userId != _ownerUserId &&
+            !(_useCredentialsOf.TryGetValue(userId, out var owner) && owner == _ownerUserId))
+            throw new InvalidOperationException("Google Docs isn't set up for this user");
+
+        var session = _session;
         if (DateTime.UtcNow < session.TokenExpiry)
             return session;
 
@@ -54,38 +67,6 @@ public sealed class GoogleDocsService : IGoogleDocsService
             session.Lock.Release();
         }
         return session;
-    }
-
-    private async Task<GoogleSession> GetSessionAsync(int userId, CancellationToken ct)
-    {
-        if (_sessions.TryGetValue(userId, out var own))
-            return own;
-
-        // Own credentials first; then the explicit allowlist; nothing else.
-        var owner = userId;
-        if (await _secretService.GetAsync(userId, "google_oauth_refresh_token", ct) is null)
-        {
-            if (!_useCredentialsOf.TryGetValue(userId, out owner))
-                throw new InvalidOperationException("Google Docs isn't set up for this user");
-            if (_sessions.TryGetValue(owner, out var delegated))
-                return delegated;
-        }
-
-        var session = new GoogleSession
-        {
-            RefreshToken = await LoadSecretAsync(owner, "google_oauth_refresh_token", ct),
-            ClientId = await LoadSecretAsync(owner, "google_oauth_client_id", ct),
-            ClientSecret = await LoadSecretAsync(owner, "google_oauth_client_secret", ct),
-            FolderId = await LoadSecretAsync(owner, "google_docs_folder_id", ct)
-        };
-        return _sessions.GetOrAdd(owner, session);
-    }
-
-    private async Task<string> LoadSecretAsync(int userId, string key, CancellationToken ct)
-    {
-        var secret = await _secretService.GetAsync(userId, key, ct)
-            ?? throw new InvalidOperationException($"Secret '{key}' not found");
-        return secret.Value!;
     }
 
     private static async Task RefreshAccessTokenAsync(GoogleSession session, CancellationToken ct)

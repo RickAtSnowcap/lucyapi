@@ -14,7 +14,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../LucyAPI.Data/LucyAPI.Data.csproj" />
-    <ProjectReference Include="/home/rfry/code/tcrypt-lib/TcryptLib.csproj" />
   </ItemGroup>
 
 </Project>

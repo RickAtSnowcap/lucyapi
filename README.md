@@ -4,7 +4,7 @@ Multi-agent context service for AI assistants. Built with .NET 10 Native AOT —
 
 ## What it does
 
-LucyAPI provides persistent, structured context that AI agents can load on demand during conversations. Instead of stuffing everything into a system prompt, agents call the API to fetch exactly what they need — memories, preferences, project notes, wiki documentation, hints, secrets, and more.
+LucyAPI provides persistent, structured context that AI agents can load on demand during conversations. Instead of stuffing everything into a system prompt, agents call the API to fetch exactly what they need — memories, preferences, project notes, wiki documentation, hints, and more.
 
 The core idea: **agents shouldn't lose context between sessions, and they shouldn't carry context they don't need.**
 
@@ -16,13 +16,12 @@ The core idea: **agents shouldn't lose context between sessions, and they should
 - **Projects** — hierarchical project tracking with nested sections
 - **Wikis** — structured documentation with nested sections and tagging
 - **Hints** — categorized hints and knowledge base entries with access control
-- **Secrets** — encrypted key-value storage (BYTEA at rest in PostgreSQL)
 - **Sharing** — cross-user object sharing with permission levels
 - **Handoffs** — structured task handoffs between agents
 - **Sessions** — automatic: every `get_context` call opens a session; projects an agent loads (`get_project` / `get_project_compact`) are recorded as that session's focus
 - **Nudges** — deadline reminders and actionable items with frequency control
 - **Images** — AI image generation, editing, analysis, and lifecycle management
-- **Google Docs** — Google Drive and Docs integration (create, read, update, move, delete)
+- **Google Docs** — Google Drive and Docs integration (create, read, update, move, delete) through one server-wide Google identity: sealed `Suitcase:GoogleClientId` / `GoogleClientSecret` / `GoogleRefreshToken` / `GoogleFolderId`, plus `GoogleDocs:OwnerUserId` (the `GoogleDocs:UseCredentialsOf` allowlist lets other users share it)
 - **Save Notes** — email markdown notes from mobile or external contexts
 - **Boot** — agent bootstrap endpoint returning API URLs and always-load context
 - **Admin** — JWT-authenticated management of agents, resources, and auth
@@ -62,7 +61,7 @@ PostgreSQL with all business logic in PL/pgSQL functions under the `lucyapi` sch
 | OAuth | `GET /.well-known/oauth-protected-resource[/mcp/connector]`, `GET /.well-known/oauth-authorization-server`, `POST /oauth/register`, `GET/POST /oauth/authorize`, `POST /oauth/token` |
 | Documents | `GET /doc/projects/{id}`, `GET /doc/wikis/{id}` (signed links from `get_project` / `get_wiki`) |
 | Admin auth | `POST /auth/login`, `POST /auth/refresh`, `GET /auth/me`, `PUT /auth/password` |
-| Admin | `/admin/agents/{name}/...`, `/admin/projects`, `/admin/wikis`, `/admin/hints`, `/admin/hint-categories`, `/admin/secrets`, `/admin/sharing`, `/admin/nudges`, `/admin/images`, `/admin/users`, `/admin/project-statuses`, `/admin/dashboard` |
+| Admin | `/admin/agents/{name}/...`, `/admin/projects`, `/admin/wikis`, `/admin/hints`, `/admin/hint-categories`, `/admin/sharing`, `/admin/nudges`, `/admin/images`, `/admin/users`, `/admin/project-statuses`, `/admin/dashboard` |
 
 ## Running
 

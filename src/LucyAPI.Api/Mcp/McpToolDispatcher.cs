@@ -23,7 +23,6 @@ public sealed class McpToolDispatcher(
     ISessionService sessionService,
     IContextService contextService,
     IHintService hintService,
-    ISecretService secretService,
     INudgeService nudgeService,
     IShareService shareService,
     IGoogleDocsService googleDocsService,
@@ -125,12 +124,6 @@ public sealed class McpToolDispatcher(
 
             // --- Save Notes ---
             "save_notes" => HandleSaveNotes(args),
-
-            // --- Secrets ---
-            "list_secrets" => await HandleListSecrets(caller, ct),
-            "get_secret" => await HandleGetSecret(caller, args, ct),
-            "set_secret" => await HandleSetSecret(caller, args, ct),
-            "delete_secret" => await HandleDeleteSecret(caller, args, ct),
 
             // --- Nudges ---
             "get_nudges" => await HandleGetNudges(caller, ct),
@@ -766,10 +759,6 @@ public sealed class McpToolDispatcher(
     }
 
     // ===============================================================
-    //  HANDLERS: Secrets
-    // ===============================================================
-
-    // ===============================================================
     //  HANDLERS: Nudges
     // ===============================================================
 
@@ -818,34 +807,6 @@ public sealed class McpToolDispatcher(
     {
         var count = await nudgeService.DeleteAsync(caller.UserId, GetInt(args, "nudge_id"), ct);
         return count == 0 ? Error("Nudge not found") : "{\"deleted_count\":" + count + "}";
-    }
-
-    private async Task<string> HandleListSecrets(Agent caller, CancellationToken ct)
-    {
-        var keys = await secretService.ListKeysAsync(caller.UserId, ct);
-        return "{\"keys\":" + Serialize(keys, AppJsonSerializerContext.Default.ListString) + "}";
-    }
-
-    private async Task<string> HandleGetSecret(Agent caller, JsonElement args, CancellationToken ct)
-    {
-        var key = GetString(args, "key") ?? "";
-        var secret = await secretService.GetAsync(caller.UserId, key, ct);
-        return secret is null ? Error("Secret not found") : Serialize(secret, AppJsonSerializerContext.Default.Secret);
-    }
-
-    private async Task<string> HandleSetSecret(Agent caller, JsonElement args, CancellationToken ct)
-    {
-        var key = GetString(args, "key") ?? "";
-        var req = new SetSecretRequest { Value = GetString(args, "value") ?? "" };
-        var ok = await secretService.SetAsync(caller.UserId, key, req, ct);
-        return ok ? "{\"key\":\"" + Esc(key) + "\",\"status\":\"saved\"}" : Error("Failed to set secret");
-    }
-
-    private async Task<string> HandleDeleteSecret(Agent caller, JsonElement args, CancellationToken ct)
-    {
-        var key = GetString(args, "key") ?? "";
-        var ok = await secretService.DeleteAsync(caller.UserId, key, ct);
-        return ok ? "{\"key\":\"" + Esc(key) + "\",\"status\":\"deleted\"}" : Error("Secret not found");
     }
 
     // ===============================================================
@@ -1566,25 +1527,6 @@ public sealed class McpToolDispatcher(
         Tool("delete_nudge",
             "Delete a nudge.",
             _NID, "\"nudge_id\"");
-
-        // --- Secrets ---
-        Tool("list_secrets",
-            "List all secret key names (no values).",
-            "", "");
-
-        Tool("get_secret",
-            "Get decrypted secret value.",
-            "\"key\":{\"type\":\"string\",\"description\":\"Secret key name\"}", "\"key\"");
-
-        Tool("set_secret",
-            "Create or update an encrypted secret.",
-            "\"key\":{\"type\":\"string\",\"description\":\"Secret key name\"}," +
-            "\"value\":{\"type\":\"string\",\"description\":\"Secret value (will be encrypted)\"}",
-            "\"key\",\"value\"");
-
-        Tool("delete_secret",
-            "Delete a secret.",
-            "\"key\":{\"type\":\"string\",\"description\":\"Secret key name\"}", "\"key\"");
 
         // --- Handoffs ---
         Tool("list_handoffs",

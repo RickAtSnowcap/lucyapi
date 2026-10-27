@@ -44,7 +44,6 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \ir tables/projects.sql
 \ir tables/project_sections.sql
 \ir tables/sessions.sql
-\ir tables/secrets.sql
 \ir tables/handoffs.sql
 \ir tables/hints.sql
 \ir tables/images.sql
@@ -134,10 +133,6 @@ CREATE SCHEMA IF NOT EXISTS lucyapi;
 \ir functions/fn_image_delete.sql
 \ir functions/fn_image_get_unkept.sql
 \ir functions/fn_image_delete_batch.sql
-\ir functions/fn_secret_list.sql
-\ir functions/fn_secret_get.sql
-\ir functions/fn_secret_set.sql
-\ir functions/fn_secret_delete.sql
 \ir functions/fn_share_create.sql
 \ir functions/fn_share_revoke.sql
 \ir functions/fn_share_list_by_me.sql

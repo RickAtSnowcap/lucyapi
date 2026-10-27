@@ -108,11 +108,6 @@ public sealed class AdminDeletedIdResponse
     public int Deleted { get; set; }
 }
 
-public sealed class AdminDeletedKeyResponse
-{
-    public string Deleted { get; set; } = "";
-}
-
 // ── Admin Resource Lists ──────────────────────────────────────
 
 public sealed class AdminMemoryListResponse
@@ -279,29 +274,6 @@ public sealed class AdminHintUpdateRequest
     public string? Description { get; set; }
 }
 
-public sealed class AdminSecretListResponse
-{
-    public List<AdminSecretKey> Secrets { get; set; } = [];
-}
-
-public sealed class AdminSecretKey
-{
-    public string Key { get; set; } = "";
-    public DateTimeOffset? CreatedAt { get; set; }
-    public DateTimeOffset? UpdatedAt { get; set; }
-}
-
-public sealed class AdminSecretCreateRequest
-{
-    public string Value { get; set; } = "";
-}
-
-public sealed class AdminSecretValueResponse
-{
-    public string Key { get; set; } = "";
-    public string Value { get; set; } = "";
-}
-
 public sealed class AdminUserListResponse
 {
     public List<UserInfoResponse> Users { get; set; } = [];
@@ -386,7 +358,6 @@ public sealed class AdminDashboardStats
     public long Projects { get; set; }
     public long Wikis { get; set; }
     public long HintCategories { get; set; }
-    public long Secrets { get; set; }
     public long Images { get; set; }
     public long PendingHandoffs { get; set; }
     public long SharedToMe { get; set; }
@@ -428,19 +399,6 @@ public sealed class AdminPickedUpItem
     public int HandoffId { get; set; }
     public string Title { get; set; } = "";
     public DateTimeOffset? PickedUpAt { get; set; }
-}
-
-public sealed class AdminSavedResponse
-{
-    public AdminSavedItem Saved { get; set; } = null!;
-}
-
-public sealed class AdminSavedItem
-{
-    public int SecretId { get; set; }
-    public string Key { get; set; } = "";
-    public DateTimeOffset? CreatedAt { get; set; }
-    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public sealed class AdminImageDeletedResponse

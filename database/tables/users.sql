@@ -1,5 +1,5 @@
 -- users.sql
--- Core identity table. Every agent, project, wiki, hint, secret, and image belongs to a user.
+-- Core identity table. Every agent, project, wiki, hint, and image belongs to a user.
 
 CREATE TABLE IF NOT EXISTS users (
     user_id     SERIAL          PRIMARY KEY,

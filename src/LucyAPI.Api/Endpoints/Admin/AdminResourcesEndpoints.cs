@@ -388,61 +388,6 @@ public static class AdminResourcesEndpoints
             return Results.Ok(new AdminDeletedResponse { Deleted = hintId, DescendantsDeleted = count - 1 });
         });
 
-        // ── Secrets ──────────────────────────────────────────────
-
-        app.MapGet("/admin/secrets", async (
-            HttpContext ctx,
-            AdminRepository adminRepo,
-            CancellationToken ct) =>
-        {
-            var caller = ctx.GetUserContext();
-            var rows = await adminRepo.ListSecretKeysAsync(caller.UserId, ct);
-            var secrets = rows.Select(r => new AdminSecretKey
-            {
-                Key = r.Key,
-                CreatedAt = r.CreatedAt,
-                UpdatedAt = r.UpdatedAt
-            }).ToList();
-            return Results.Ok(new AdminSecretListResponse { Secrets = secrets });
-        });
-
-        app.MapGet("/admin/secrets/{key}", async (
-            string key,
-            HttpContext ctx,
-            ISecretService secretService,
-            CancellationToken ct) =>
-        {
-            var caller = ctx.GetUserContext();
-            var secret = await secretService.GetAsync(caller.UserId, key, ct);
-            if (secret is null) return Results.NotFound();
-            return Results.Ok(new AdminSecretValueResponse { Key = key, Value = secret.Value ?? "" });
-        });
-
-        app.MapPut("/admin/secrets/{key}", async (
-            string key,
-            SetSecretRequest request,
-            HttpContext ctx,
-            ISecretService secretService,
-            CancellationToken ct) =>
-        {
-            var caller = ctx.GetUserContext();
-            await secretService.SetAsync(caller.UserId, key, request, ct);
-            return Results.Ok(new KeyStatusResponse { Key = key, Status = "saved" });
-        });
-
-        app.MapDelete("/admin/secrets/{key}", async (
-            string key,
-            HttpContext ctx,
-            ISecretService secretService,
-            CancellationToken ct) =>
-        {
-            var caller = ctx.GetUserContext();
-            var deleted = await secretService.DeleteAsync(caller.UserId, key, ct);
-            return deleted
-                ? Results.Ok(new AdminDeletedKeyResponse { Deleted = key })
-                : Results.NotFound();
-        });
-
         // ── Nudges ───────────────────────────────────────────────
 
         app.MapGet("/admin/nudges", async (
@@ -778,7 +723,6 @@ public static class AdminResourcesEndpoints
                     Projects = stats.Projects,
                     Wikis = stats.Wikis,
                     HintCategories = stats.HintCategories,
-                    Secrets = stats.Secrets,
                     Images = stats.Images,
                     PendingHandoffs = stats.PendingHandoffs,
                     SharedToMe = stats.SharedToMe

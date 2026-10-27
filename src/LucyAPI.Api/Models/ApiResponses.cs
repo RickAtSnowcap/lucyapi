@@ -21,12 +21,6 @@ public sealed class ProjectDetailResponse
     public List<TreeNode<ProjectSection>> Sections { get; set; } = [];
 }
 
-public sealed class KeyStatusResponse
-{
-    public string Key { get; set; } = "";
-    public string Status { get; set; } = "";
-}
-
 public sealed class WikiDetailResponse
 {
     public Wiki Wiki { get; set; } = null!;
