@@ -15,6 +15,9 @@
     \set app_role lucyapi_app
 \endif
 
+-- Database (PUBLIC has no CONNECT on it, so without this the login fails with "permission denied for database")
+GRANT CONNECT ON DATABASE :"DBNAME" TO :"app_role";
+
 -- Schemas
 GRANT USAGE ON SCHEMA public TO :"app_role";
 GRANT USAGE ON SCHEMA lucyapi TO :"app_role";
