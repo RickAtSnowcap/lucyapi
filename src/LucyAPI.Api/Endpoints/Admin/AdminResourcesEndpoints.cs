@@ -609,8 +609,15 @@ public static class AdminResourcesEndpoints
             CancellationToken ct) =>
         {
             var caller = ctx.GetUserContext();
-            var result = await imageService.GenerateAsync(caller.UserId, null, request, ct);
-            return Results.Ok(result);
+            try
+            {
+                var result = await imageService.GenerateAsync(caller.UserId, null, request, ct);
+                return Results.Ok(result);
+            }
+            catch (ArgumentException)
+            {
+                return Results.BadRequest(); // unsupported aspect_ratio
+            }
         });
 
         // Multipart upload from LucyAdmin (phone or desktop): one image per request, form field "file",

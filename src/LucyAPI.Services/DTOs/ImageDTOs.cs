@@ -4,7 +4,8 @@ public sealed class GenImageRequest
 {
     public string Prompt { get; set; } = "";
     public string Model { get; set; } = "nano-banana";
-    public string AspectRatio { get; set; } = "1:1";
+    // null or blank = ImageService.DefaultAspectRatio (16:9)
+    public string? AspectRatio { get; set; }
 }
 
 public sealed class EditImageRequest

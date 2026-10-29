@@ -11,7 +11,6 @@ namespace LucyAPI.Services.Implementations;
 /// </summary>
 public sealed class GeminiService : IGeminiService
 {
-    private readonly string _apiKey;
     private readonly HttpClient _http;
 
     private static readonly Dictionary<string, string> ModelAliases = new()
@@ -22,12 +21,13 @@ public sealed class GeminiService : IGeminiService
 
     public GeminiService(string apiKey)
     {
-        _apiKey = apiKey;
         _http = new HttpClient
         {
             BaseAddress = new Uri("https://generativelanguage.googleapis.com/"),
             Timeout = TimeSpan.FromSeconds(120)
         };
+        // Key in a header, not the URL query, so it can't surface in proxies, logs or error messages.
+        _http.DefaultRequestHeaders.Add("x-goog-api-key", apiKey);
     }
 
     private static string ResolveModel(string model) =>
@@ -38,8 +38,9 @@ public sealed class GeminiService : IGeminiService
     {
         var modelStr = ResolveModel(model);
 
+        // Always send the ratio, 1:1 included: when it's left out, Gemini chooses a shape itself.
         var imageConfigInner = "";
-        if (!string.IsNullOrEmpty(aspectRatio) && aspectRatio != "1:1")
+        if (!string.IsNullOrEmpty(aspectRatio))
             imageConfigInner = "\"aspectRatio\":\"" + EscapeJson(aspectRatio) + "\"";
 
         var json = "{\"contents\":[{\"parts\":[{\"text\":\"" + EscapeJson(prompt) + "\"}]}],"
@@ -47,7 +48,7 @@ public sealed class GeminiService : IGeminiService
             + "\"imageConfig\":{" + imageConfigInner + "}}}";
 
         var resp = await _http.PostAsync(
-            $"v1beta/models/{modelStr}:generateContent?key={_apiKey}",
+            $"v1beta/models/{modelStr}:generateContent",
             new StringContent(json, Encoding.UTF8, "application/json"), ct);
         resp.EnsureSuccessStatusCode();
 
@@ -67,7 +68,7 @@ public sealed class GeminiService : IGeminiService
             + "\"imageConfig\":{}}}";
 
         var resp = await _http.PostAsync(
-            $"v1beta/models/{modelStr}:generateContent?key={_apiKey}",
+            $"v1beta/models/{modelStr}:generateContent",
             new StringContent(json, Encoding.UTF8, "application/json"), ct);
         resp.EnsureSuccessStatusCode();
 
@@ -85,7 +86,7 @@ public sealed class GeminiService : IGeminiService
             + "{\"text\":\"" + EscapeJson(prompt) + "\"}]}]}";
 
         var resp = await _http.PostAsync(
-            $"v1beta/models/{modelStr}:generateContent?key={_apiKey}",
+            $"v1beta/models/{modelStr}:generateContent",
             new StringContent(json, Encoding.UTF8, "application/json"), ct);
         resp.EnsureSuccessStatusCode();
 

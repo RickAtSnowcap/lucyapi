@@ -332,12 +332,6 @@ public sealed class AdminRevokedResponse
 
 // ── Admin Images ─────────────────────────────────────────────
 
-public sealed class AdminGenImageRequest
-{
-    public string Prompt { get; set; } = "";
-    public string Model { get; set; } = "nano-banana";
-    public string AspectRatio { get; set; } = "1:1";
-}
 
 public sealed class AdminKeepRequest
 {

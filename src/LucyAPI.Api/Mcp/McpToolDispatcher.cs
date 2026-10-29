@@ -921,7 +921,7 @@ public sealed class McpToolDispatcher(
         {
             Prompt = GetString(args, "prompt") ?? "",
             Model = GetString(args, "model") ?? "nano-banana",
-            AspectRatio = GetString(args, "aspect_ratio") ?? "1:1"
+            AspectRatio = GetString(args, "aspect_ratio")
         };
         var result = await imageService.GenerateAsync(caller.UserId, caller.AgentId, req, ct);
         return Serialize(result, AppJsonSerializerContext.Default.ImageResponse);
@@ -1571,7 +1571,7 @@ public sealed class McpToolDispatcher(
             "Generate an image from a text prompt via Gemini.",
             "\"prompt\":{\"type\":\"string\",\"description\":\"Text prompt for image generation\"}," +
             "\"model\":{\"type\":\"string\",\"description\":\"Model alias (nano-banana or nano-banana-pro)\"}," +
-            "\"aspect_ratio\":{\"type\":\"string\",\"description\":\"Aspect ratio (1:1, 16:9, etc.)\"}",
+            "\"aspect_ratio\":{\"type\":\"string\",\"description\":\"Aspect ratio: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9 or 21:9. Default 16:9.\"}",
             "\"prompt\"");
 
         Tool("edit_image",

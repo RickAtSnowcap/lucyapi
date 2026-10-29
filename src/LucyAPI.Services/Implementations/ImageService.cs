@@ -23,9 +23,23 @@ public sealed class ImageService : IImageService
         Directory.CreateDirectory(_imagesDir);
     }
 
+    // Gemini image models' supported ratios. Always sent explicitly: with no ratio, Gemini picks one itself.
+    public const string DefaultAspectRatio = "16:9";
+    public static readonly string[] SupportedAspectRatios =
+        ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
+
+    public static string NormalizeAspectRatio(string? aspectRatio)
+    {
+        var ratio = string.IsNullOrWhiteSpace(aspectRatio) ? DefaultAspectRatio : aspectRatio.Trim();
+        if (!SupportedAspectRatios.Contains(ratio))
+            throw new ArgumentException($"aspect_ratio must be one of {string.Join(", ", SupportedAspectRatios)}");
+        return ratio;
+    }
+
     public async Task<ImageResponse> GenerateAsync(int? userId, int? agentId, GenImageRequest request, CancellationToken ct)
     {
-        var result = await _gemini.GenerateImageAsync(request.Prompt, request.Model, request.AspectRatio, ct);
+        var aspectRatio = NormalizeAspectRatio(request.AspectRatio);
+        var result = await _gemini.GenerateImageAsync(request.Prompt, request.Model, aspectRatio, ct);
         var image = ImageValidator.Validate(result.ImageBytes, MaxGeneratedImageBytes);
 
         return await StoreAsync(userId, agentId, image, "generated", title: null, description: null,
